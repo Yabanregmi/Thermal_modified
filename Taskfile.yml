@@ -10,12 +10,12 @@ tasks:
       - echo "Installiere C++-Abhängigkeiten (z.B. mit vcpkg oder apt-get)"
       # - vcpkg install <paket> # Beispiel
 
-  install_js_deps:
+  install_backend_deps:
     cmds:
-      - npm install --prefix node
+      - npm install --prefix backend
 
   install_all:
-    deps: [install_python_deps, install_cpp_deps, install_js_deps]
+    deps: [install_python_deps, install_cpp_deps, install_backend_deps]
 
   build_cpp:
     cmds:
@@ -30,12 +30,12 @@ tasks:
     cmds:
       - python3 python/tests_runner.py
 
-  test_js:
+  test_backend:
     cmds:
       - npm test --prefix node
 
   test_all:
-    deps: [test_cpp, test_python, test_js]
+    deps: [test_cpp, test_python, test_backend]
 
   # ===== Code-Ausführung =====
 
@@ -47,9 +47,9 @@ tasks:
     cmds:
       - ./cpp/build/main # Passe den Namen ggf. an, z.B. main, app, etc.
 
-  run_js:
+  run_backend:
     cmds:
-      - node node/index.js
+      - node backend/index.js
 
   run_all:
     deps: [run_cpp, run_python, run_js]
