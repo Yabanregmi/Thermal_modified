@@ -5,4 +5,4 @@ Befehle.txt
 cpp/build
 __pycache__
 log.txt
-/venv
+python/venv/
