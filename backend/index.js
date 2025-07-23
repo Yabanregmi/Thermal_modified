@@ -14,7 +14,7 @@ const { Sqlite3Database }  = require('./lib/database/Sqlite3Database');
   const { http: server_http } = getApi({ database });
 
   // Server-Konfiguration
-  const HOST = "localhost";
+  const HOST = "0.0.0.0";
   const PORT = 4000;
 
   // Starte den HTTP-/Socket.io-Server

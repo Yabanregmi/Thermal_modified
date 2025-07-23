@@ -52,4 +52,4 @@ tasks:
       - node backend/index.js
 
   run_all:
-    deps: [run_cpp, run_python, run_js]
+    deps: [run_python, run_backend]
