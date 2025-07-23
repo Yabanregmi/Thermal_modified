@@ -1,6 +1,22 @@
 version: '3'
 
 tasks:
+  install_python_deps:
+    cmds:
+      - pip install -r python/requirements.txt
+
+  install_cpp_deps:
+    cmds:
+      - echo "Installiere C++-Abhängigkeiten (z.B. mit vcpkg oder apt-get)"
+      # - vcpkg install <paket> # Beispiel
+
+  install_js_deps:
+    cmds:
+      - npm install --prefix node
+
+  install_all:
+    deps: [install_python_deps, install_cpp_deps, install_js_deps]
+
   build_cpp:
     cmds:
       - cmake -S cpp -B cpp/build
@@ -12,12 +28,28 @@ tasks:
 
   test_python:
     cmds:
-      - python3 -m unittest discover python
+      - python3 python/tests_runner.py
 
   test_js:
     cmds:
-      - npm install --prefix node
       - npm test --prefix node
 
   test_all:
     deps: [test_cpp, test_python, test_js]
+
+  # ===== Code-Ausführung =====
+
+  run_python:
+    cmds:
+      - python3 python/main.py
+
+  run_cpp:
+    cmds:
+      - ./cpp/build/main # Passe den Namen ggf. an, z.B. main, app, etc.
+
+  run_js:
+    cmds:
+      - node node/index.js
+
+  run_all:
+    deps: [run_cpp, run_python, run_js]
