@@ -1,0 +1,23 @@
+version: '3'
+
+tasks:
+  build_cpp:
+    cmds:
+      - cmake -S cpp -B cpp/build
+      - cmake --build cpp/build
+
+  test_cpp:
+    cmds:
+      - ./cpp/build/myTests
+
+  test_python:
+    cmds:
+      - python3 -m unittest discover python
+
+  test_js:
+    cmds:
+      - npm install --prefix node
+      - npm test --prefix node
+
+  test_all:
+    deps: [test_cpp, test_python, test_js]
