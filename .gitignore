@@ -9,3 +9,5 @@ python/venv/
 seedUsers.json
 curl.txt
 *.db
+venv
+.venv
