@@ -13,7 +13,7 @@ class Sqlite3Database {
 
     async initialize () {
         this.db = await open({
-            filename: './backend/users.db',
+            filename: './users.db',
             driver: sqlite3.Database
         });
     }

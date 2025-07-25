@@ -1,21 +1,28 @@
 version: '3'
 
 tasks:
-  install_python_deps:
+  install_python:
     cmds:
-      - pip install -r python/requirements.txt
+      - python -m venv python/.venv
+      - test -d python/.venv || python3 -m venv python/.venv
+      - python/.venv/bin/pip install --upgrade pip
+      - python/.venv/bin/pip install -r python/requirements.txt
 
-  install_cpp_deps:
+  install_cpp:
     cmds:
       - echo "Installiere C++-Abhängigkeiten (z.B. mit vcpkg oder apt-get)"
       # - vcpkg install <paket> # Beispiel
 
-  install_backend_deps:
+  install_backend:
     cmds:
       - npm install --prefix backend
 
+  install_frontend:
+    cmds:
+      - npm install --prefix frontend
+
   install_all:
-    deps: [install_python_deps, install_cpp_deps, install_backend_deps]
+    deps: [install_python, install_cpp, install_backend, install_frontend]
 
   build_cpp:
     cmds:
@@ -28,20 +35,24 @@ tasks:
 
   test_python:
     cmds:
-      - python3 python/tests_runner.py
+      - python/.venv/bin/python python/tests_runner.py
 
   test_backend:
     cmds:
-      - npm test --prefix node
+      - npm test --prefix backend
+
+  test_frontend:
+    cmds:
+      - npm test --prefix frontend
 
   test_all:
-    deps: [test_cpp, test_python, test_backend]
+    deps: [test_cpp, test_python, test_backend, test_frontend]
 
   # ===== Code-Ausführung =====
 
   run_python:
     cmds:
-      - python3 python/main.py
+      - python/.venv/bin/python python/main.py
 
   run_cpp:
     cmds:
@@ -49,7 +60,22 @@ tasks:
 
   run_backend:
     cmds:
-      - node backend/index.js
+      - npm start --prefix backend
+
+  run_frontend:
+    cmds:
+      - npm start --prefix frontend
 
   run_all:
-    deps: [run_python, run_backend]
+    deps: [run_python, run_backend, run_frontend]
+
+  # ===== Clean-Task =====
+  clean:
+    cmds:
+      - rm -rf cpp/build
+      - rm -rf backend/node_modules
+      - rm -rf frontend/node_modules
+      - find python -name "__pycache__" -type d -exec rm -rf {} +
+      - find python -name "*.pyc" -delete
+      - rm -rf python/venv
+      - echo "Alle Build- und Cache-Verzeichnisse entfernt."

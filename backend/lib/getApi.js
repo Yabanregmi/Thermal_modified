@@ -23,9 +23,10 @@ const getApi = function({ database }) {
 
     const server_express = express();
 
-    // Setup von CORS und JSON-Body-Parser Middleware
+
+    // Setup von CORS und JSON-Body-Parser Middlewareich
     server_express.use(cors({
-        origin: 'http://localhost:3000',
+        origin: "*",
         credentials: true
     }));
     server_express.use(body_parser.json());
@@ -39,7 +40,7 @@ const getApi = function({ database }) {
 
     const io = new Server(server_http, {
         cors: {
-            origin: 'http://localhost:3000',
+            origin:"*",
             credentials: true
         }
     });

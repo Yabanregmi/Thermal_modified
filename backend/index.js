@@ -18,7 +18,7 @@ const { Sqlite3Database }  = require('./lib/database/Sqlite3Database');
   const PORT = 4000;
 
   // Starte den HTTP-/Socket.io-Server
-  server_http.listen(PORT, HOST, () => {
+  server_http.listen(PORT, () => {
     console.log(`Backend läuft auf http://${HOST}:${PORT}`);
   });
 })();

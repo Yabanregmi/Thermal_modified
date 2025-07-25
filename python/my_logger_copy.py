@@ -142,3 +142,41 @@ class MyLogger(logging.Logger):
         :return: Instanzzähler (int)
         """
         return cls._instances
+
+import multiprocessing
+import time
+from pathlib import Path
+
+# (Hier kommt die Klasse MyLogger wie oben...)
+
+def worker_proc(name: str):
+    """
+    Ein Worker-Prozess, der ein paar Logeinträge schreibt.
+    """
+    logger = MyLogger(name, sLevel="INFO", sFilePath=Path("log.txt"))
+    for i in range(3):
+        logger.info(f"[{name}] Schritt {i+1}")
+        time.sleep(0.5)
+    logger.info(f"[{name}] Fertig.")
+
+def main():
+    logger = MyLogger("main", sLevel="DEBUG", sFilePath=Path("log.txt"))
+    logger.info("Starte Multiprozess-Logging-Demo")
+
+    procs = []
+    for i in range(2):
+        p = multiprocessing.Process(target=worker_proc, args=(f"worker-{i+1}",))
+        procs.append(p)
+        p.start()
+        logger.info(f"Worker-{i+1} gestartet.")
+
+    for p in procs:
+        p.join()
+        logger.info(f"{p.name} beendet.")
+
+    logger.info("Alle Worker fertig, Logging wird gestoppt.")
+    MyLogger.stopAll()
+
+if __name__ == "__main__":
+    main()
+
