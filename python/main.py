@@ -10,6 +10,7 @@ from global_mp_logger import GlobalMPLogger as my_logger
 from my_processes import MyQueue, MyEvent, ServerEvents
 from pathlib import Path
 from config import BUFFER_SIZE, SERVER_URL, SLEEP_TIME
+from my_relais import Relay
 
 def shutdown_all_processes():
     for name in ProcessManager.processes:
@@ -41,6 +42,9 @@ Startpunkt der Anwendung:
 """
 
 if __name__ == "__main__":
+    relay = Relay()
+
+    relay.ON_1()
     # Initialize multiprocess logger
     my_logger.configure(Path("log.txt"), logging.DEBUG)
     my_logger.start()
@@ -77,18 +81,22 @@ if __name__ == "__main__":
                 for failed_process in check_all_heartbeats():
                     logger_main_process.critical(
                         f"{failed_process} hearbeat failed")
+                    relay.OFF_1()
                 last_heartbeat = now
         except Exception as e:
             logger_main_process.debug(f"Critical process error")
             server_process.terminate()
-        finally:
-            # Kurzes Sleep, um CPU-Last zu minimieren und Tastendruck zuverlässig zu erkennen
-            time.sleep(3)
-            server_events.shutdown.set()
+            relay.OFF_1()
             break
-
+        # finally:
+        #     # Kurzes Sleep, um CPU-Last zu minimieren und Tastendruck zuverlässig zu erkennen
+        #     time.sleep(3)
+        #     server_events.shutdown.set()
+        #     break
+    relay.OFF_1
     # Wartet auf das Ende aller Prozesse, bevor das Programm beendet wird
     for process in ProcessManager.processes.values():
         process.join()
 
     my_logger.stop()
+     

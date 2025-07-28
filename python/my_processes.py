@@ -195,10 +195,14 @@ class BaseProcess(multiprocessing.Process):
 
         while not self.events.shutdown.is_set():
             if not self.is_connected:
-                await self.sio.connect(self.url) # try websocket verbindung
-                self.is_connected = self.events.connect.wait() # wait for connect event
+                try:
+                    await self.sio.connect(self.url) # try websocket verbindung
+                    self.is_connected = self.events.connect.wait() # wait for connect event
+                except:
+                    self.logger.debug("Connection error")
             else:
                 self.events.heartbeat.set()
+            time.sleep(1)
         
         self.logger.debug("ServerProcess shutdown initialsiert")
         if self.is_connected:
