@@ -16,6 +16,12 @@ export interface ApiServers {
   server_intern: HttpServer;
 }
 
+export interface ConfigLock {
+  id: string; // Socket-ID des Halters
+  timeout?: NodeJS.Timeout;
+  expiresAt?: number; // Zeitstempel, wann das Lock abläuft
+ }
+
 // Typisiere die Getter/Setter für den Socket-Handler
 interface KonfigState {
   getTemperSchwelle: () => number;
@@ -39,7 +45,7 @@ export function getApi({ database }: { database: Database }): ApiServers {
   let letzteLiveTemperatur: TemperaturMsg | null = null;
   let konfigAckTimeout: NodeJS.Timeout | null = null;
   let konfigReady = false;
-
+  let configLock: ConfigLock = {id : ""};
   // === Frontend-Socket (für Browser) ===
   const appFrontend: Express = express();
 
@@ -93,6 +99,7 @@ export function getApi({ database }: { database: Database }): ApiServers {
   ioFrontend.on('connection', createSocketHandlers({
     server_socket: ioFrontend,
     database,
+    configLock,
     konfigAckTimeout,
     setKonfigAckTimeout: konfigState.setKonfigAckTimeout,
     konfigReady,
@@ -121,6 +128,10 @@ export function getApi({ database }: { database: Database }): ApiServers {
       origin: "http://localhost:4002",
       credentials: true
     }
+  });
+
+  ioIntern.use((socket,next) => {
+    let handshake = socket.handshake;
   });
 
   ioIntern.on('connection', intern_register_handlers());

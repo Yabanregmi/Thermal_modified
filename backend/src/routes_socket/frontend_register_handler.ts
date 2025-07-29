@@ -6,14 +6,20 @@ import { onSetSchwelle } from './routes/onSetSchwelle';
 import { onGetSchwelle } from './routes/onGetSchwelle';
 import { onLiveTemperatur, TemperaturMsg} from './routes/onLiveTemperatur';
 import { onGetHistogramm } from './routes/onGetHistogramm';
+import { requestConfig } from './routes/requestConfig';
+import { releaseConfig } from './routes/releaseConfig';
+import { ConfigLock } from '../getApi';
 
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Database } from '../database/Sqlite3Database';
+import { refreshConfigLock } from './routes/refreshConfigLock';
+import { config } from 'process';
 
 // Typ für die Factory-Props
 export interface SocketHandlersProps {
   server_socket: SocketIOServer;
   database: Database;
+  configLock : ConfigLock;
   konfigAckTimeout: NodeJS.Timeout | null;
   setKonfigAckTimeout: (v: NodeJS.Timeout | null) => void;
   konfigReady: boolean;
@@ -24,6 +30,7 @@ export interface SocketHandlersProps {
   setLetzteLiveTemperatur: (v: TemperaturMsg | null) => void;
 }
 
+const AUTO_RELEASE_MS : number = 1000*60*3;
 /**
  * Factory-Funktion, die bei jeder neuen Socket-Verbindung alle relevanten Event-Handler registriert.
  *
@@ -33,6 +40,7 @@ export interface SocketHandlersProps {
 export function createSocketHandlers({
   server_socket,
   database,
+  configLock,
   konfigAckTimeout,
   setKonfigAckTimeout,
   konfigReady,
@@ -43,6 +51,9 @@ export function createSocketHandlers({
   setLetzteLiveTemperatur
 }: SocketHandlersProps) {
   return function (socket: Socket) {
+    requestConfig(socket, configLock);
+    releaseConfig(socket, configLock);
+    refreshConfigLock(socket, configLock, AUTO_RELEASE_MS);
     // Handler für den Start der Konfiguration
     onKonfigStart(socket, server_socket, {
       konfigAckTimeoutRef: () => konfigAckTimeout,

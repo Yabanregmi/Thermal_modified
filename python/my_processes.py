@@ -230,7 +230,7 @@ class ServerProcess(multiprocessing.Process):
             self.is_connected = True
             self.is_connected_error = False
             self.events.connect.set()
-            self.logger.debug(f"Verbindung zu {self.url} über {self.sio.transport()} erfolgreich!")
+            self.logger.debug(f"Verbindung url: {self.url} protocol: {self.sio.transport()} sid: {self.sio.get_sid()} erfolgreich!")
 
         @self.sio.event
         def disconnect() -> None:
@@ -278,15 +278,23 @@ class ServerProcess(multiprocessing.Process):
     def reset(self) -> bool:
         self.state : bool = True
         if self.is_connected :
+            self.sio.shutdown()
             self.sio.disconnect()
             self.is_connected = False
             self.state = self.events.disconnect.wait(timeout=MAXIMUM_TIMEOUT)
         return self.state
     
+    def server_ack(self) -> None:
+        self.logger.debug("Server ack")
+    
     def run(self) -> None:
         self.logger.debug("ServerProcess gestartet")
 
         while not self.events.shutdown.is_set():
+            if self.events.message.is_set():
+                self.events.message.clear()
+                self.sio.emit(event='Client ack', data = "Hallo vom Client", callback=self.server_ack)
+
             if  self.events.error_on_connection.is_set():
                 self.events.error_on_connection.clear()
                 self.events.error_from_server_process.set()
@@ -302,7 +310,7 @@ class ServerProcess(multiprocessing.Process):
                 except Exception:
                     self.is_connected = False
             self.events.heartbeat.set()
-            time.sleep(1)
+            time.sleep(0.1)
         
         if not self.reset():
             self.logger.debug("ServerProcess shutdown error")
@@ -325,16 +333,12 @@ class ProcessManager:
         return multiprocessing.current_process().name
 
     @classmethod
-    def getCurrentProcessPid(cls) -> int:
+    def getCurrentProcessPid(cls) -> int | None:
         return multiprocessing.current_process().pid
 
     @classmethod
     def getListOfProcessesAsText(cls) -> str:
         return ", ".join([p.name for p in multiprocessing.active_children()])
-
-    @classmethod
-    def getListOfProcesses(cls) -> list[multiprocessing.Process]:
-        return multiprocessing.active_children()
 
     @classmethod
     def is_alive(cls, name: str) -> bool:
