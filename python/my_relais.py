@@ -1,168 +1,143 @@
 import smbus2 as smbus
+from typing import Any, Optional
+from logging import Logger
+class Relay:
+    # Konstanten
+    NUM_RELAY_PORTS: int = 4
+    DEVICE_ADDRESS: int = 0x24
+    DEVICE_CONFIGURATION_REGISTER: int = 0x06
+    DEVICE_OUTPUT_PORT_REGISTER: int = 0x02
+    DEVICE_SET_PINS_AS_OUTPUTS: int = 0x00
+    DEVICE_DATA: int = 0xff
 
-# The number of relay ports on the relay board.
-# This value should never change!
-NUM_RELAY_PORTS = 4
+    # Statusflags (global für alle Relais im System!)
+    relay_1_is_set: bool = False
+    relay_2_is_set: bool = False
+    relay_3_is_set: bool = False
+    relay_4_is_set: bool = False
 
-# Change the following value if your Relay board uses a different I2C address. 
-DEVICE_ADDRESS = 0x24  # 7 bit address (will be left shifted to add the read write bit)
+    # Logger und Bus (müssen vor Benutzung gesetzt werden)
+    logger: Logger
+    bus: smbus.SMBus
 
-# Don't change the values, there's no need for that.
-DEVICE_REG_MODE1 = 0x06
-DEVICE_REG_DATA = 0xff
+    @classmethod
+    def init(cls, logger: Any, bus_nr: int = 1) -> None:
+        cls.logger : Logger = logger
+        cls.bus : smbus.SMBus = smbus.SMBus(bus_nr)
+        cls.logger.debug(f"ADR: {cls.DEVICE_ADDRESS}, Ports {cls.NUM_RELAY_PORTS}")
+        cls._reset_register()
+        cls.all_off()
 
-bus = smbus.SMBus(1)  # 0 = /dev/i2c-0 (port I2C0), 1 = /dev/i2c-1 (port I2C1)
+    @classmethod
+    def _reset_register(cls) -> None:
+        cls.logger.debug('Reset relay register')
+        cls.bus.write_byte_data(cls.DEVICE_ADDRESS, cls.DEVICE_CONFIGURATION_REGISTER, cls.DEVICE_SET_PINS_AS_OUTPUTS)
 
-def relay_on(relay_num):
-    global DEVICE_ADDRESS
-    global DEVICE_REG_DATA
-    global DEVICE_REG_MODE1
+    @classmethod
+    def on_1(cls) -> None:
+        if not cls.relay_1_is_set:
+            cls._relay_on(1)
+            cls.relay_1_is_set = True
 
-    if isinstance(relay_num, int):
-        # do we have a valid relay number?
-        if 0 < relay_num <= NUM_RELAY_PORTS:
-            print('Turning relay', relay_num, 'ON')
-            DEVICE_REG_DATA &= ~(0x1 << (relay_num - 1))
-            bus.write_byte_data(DEVICE_ADDRESS, DEVICE_REG_MODE1, DEVICE_REG_DATA)
+    @classmethod
+    def on_2(cls) -> None:
+        if not cls.relay_2_is_set:
+            cls._relay_on(2)
+            cls.relay_2_is_set = True
+
+    @classmethod
+    def on_3(cls) -> None:
+        if not cls.relay_3_is_set:
+            cls._relay_on(3)
+            cls.relay_3_is_set = True
+
+    @classmethod
+    def on_4(cls) -> None:
+        if not cls.relay_4_is_set:
+            cls._relay_on(4)
+            cls.relay_4_is_set = True
+
+    @classmethod
+    def off_1(cls) -> None:
+        if cls.relay_1_is_set:
+            cls._relay_off(1)
+            cls.relay_1_is_set = False
+
+    @classmethod
+    def off_2(cls) -> None:
+        if cls.relay_2_is_set:
+            cls._relay_off(2)
+            cls.relay_2_is_set = False
+
+    @classmethod
+    def off_3(cls) -> None:
+        if cls.relay_3_is_set:
+            cls._relay_off(3)
+            cls.relay_3_is_set = False
+
+    @classmethod
+    def off_4(cls) -> None:
+        if cls.relay_4_is_set:
+            cls._relay_off(4)
+            cls.relay_4_is_set = False
+
+    @classmethod
+    def all_on(cls) -> None:
+        cls.on_1()
+        cls.on_2()
+        cls.on_3()
+        cls.on_4()
+
+    @classmethod
+    def all_off(cls) -> None:
+        cls.off_1()
+        cls.off_2()
+        cls.off_3()
+        cls.off_4()
+
+    @classmethod
+    def _relay_on(cls, relay_num: int) -> None:
+        if 0 < relay_num <= cls.NUM_RELAY_PORTS:
+            cls.logger.debug(f'Relay {relay_num} ON')
+            cls.DEVICE_DATA &= ~(0x1 << (relay_num - 1))
+            cls.bus.write_byte_data(cls.DEVICE_ADDRESS, cls.DEVICE_OUTPUT_PORT_REGISTER, cls.DEVICE_DATA)
         else:
-            print('Invalid relay #:', relay_num)
-    else:
-        print('Relay number must be an Integer value')
+            cls.logger.debug(f'Invalid relay #: {relay_num}')
 
-
-def relay_off(relay_num):
-    global DEVICE_ADDRESS
-    global DEVICE_REG_DATA
-    global DEVICE_REG_MODE1
-
-    if isinstance(relay_num, int):
-        # do we have a valid relay number?
-        if 0 < relay_num <= NUM_RELAY_PORTS:
-            print('Turning relay', relay_num, 'OFF')
-            DEVICE_REG_DATA |= (0x1 << (relay_num - 1))
-            bus.write_byte_data(DEVICE_ADDRESS, DEVICE_REG_MODE1, DEVICE_REG_DATA)
+    @classmethod
+    def _relay_off(cls, relay_num: int) -> None:
+        if 0 < relay_num <= cls.NUM_RELAY_PORTS:
+            cls.logger.debug(f'Relay {relay_num} OFF')
+            cls.DEVICE_DATA |= (0x1 << (relay_num - 1))
+            cls.bus.write_byte_data(cls.DEVICE_ADDRESS, cls.DEVICE_OUTPUT_PORT_REGISTER, cls.DEVICE_DATA)
         else:
-            print('Invalid relay #:', relay_num)
-    else:
-        print('Relay number must be an Integer value')
+            cls.logger.debug(f'Invalid relay #: {relay_num}')
 
+    @classmethod
+    def relay_toggle_port(cls, relay_num: int) -> None:
+        cls.logger.debug(f'Toggling relay: {relay_num}')
+        if cls.relay_get_port_status(relay_num):
+            cls._relay_off(relay_num)
+        else:
+            cls._relay_on(relay_num)
 
-def relay_all_on():
-    global DEVICE_ADDRESS
-    global DEVICE_REG_DATA
-    global DEVICE_REG_MODE1
-
-    print('Turning all relays ON')
-    DEVICE_REG_DATA &= ~(0xf << 0)
-    bus.write_byte_data(DEVICE_ADDRESS, DEVICE_REG_MODE1, DEVICE_REG_DATA)
-
-
-def relay_all_off():
-    global DEVICE_ADDRESS
-    global DEVICE_REG_DATA
-    global DEVICE_REG_MODE1
-
-    print('Turning all relays OFF')
-    DEVICE_REG_DATA |= (0xf << 0)
-    bus.write_byte_data(DEVICE_ADDRESS, DEVICE_REG_MODE1, DEVICE_REG_DATA)
-
-
-def relay_toggle_port(relay_num):
-    print('Toggling relay:', relay_num)
-    if relay_get_port_status(relay_num):
-        # it's on, so turn it off
-        relay_off(relay_num)
-    else:
-        # it's off, so turn it on
-        relay_on(relay_num)
-
-
-def relay_get_port_status(relay_num):
-    # determines whether the specified port is ON/OFF
-    global DEVICE_REG_DATA
-    print('Checking status of relay', relay_num)
-    res = relay_get_port_data(relay_num)
-    if res > 0:
-        mask = 1 << (relay_num - 1)
-        # return the specified bit status
-        # return (DEVICE_REG_DATA & mask) != 0
-        return (DEVICE_REG_DATA & mask) == 0
-    else:
-        # otherwise (invalid port), always return False
-        print("Specified relay port is invalid")
-        return False
-
-
-def relay_get_port_data(relay_num):
-    # gets the current byte value stored in the relay board
-    global DEVICE_REG_DATA
-    print('Reading relay status value for relay', relay_num)
-    # do we have a valid port?
-    if 0 < relay_num <= NUM_RELAY_PORTS:
-        # read the memory location
-        DEVICE_REG_DATA = bus.read_byte_data(DEVICE_ADDRESS, DEVICE_REG_MODE1)
-        # return the specified bit status
-        return DEVICE_REG_DATA
-    else:
-        # otherwise (invalid port), always return 0
-        print("Specified relay port is invalid")
-        return 0
-    
-class Relay():
-    global bus
-
-    def __init__(self):
-        self.DEVICE_ADDRESS = 0x24  # 7 bit address (will be left shifted to add the read write bit)
-        self.DEVICE_REG_MODE1 = 0x06
-        self.DEVICE_REG_DATA = 0xff
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
-
-    def ON_1(self):
-        print('ON_1...')
-        self.DEVICE_REG_DATA &= ~(0x1 << 0)
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
-
-    def ON_2(self):
-        print('ON_2...')
-        self.DEVICE_REG_DATA &= ~(0x1 << 1)
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
-
-    def ON_3(self):
-        print('ON_3...')
-        self.DEVICE_REG_DATA &= ~(0x1 << 2)
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
-
-    def ON_4(self):
-        print('ON_4...')
-        self.DEVICE_REG_DATA &= ~(0x1 << 3)
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
-
-    def OFF_1(self):
-        print('OFF_1...')
-        self.DEVICE_REG_DATA |= (0x1 << 0)
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
-
-    def OFF_2(self):
-        print('OFF_2...')
-        self.DEVICE_REG_DATA |= (0x1 << 1)
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
-
-    def OFF_3(self):
-        print('OFF_3...')
-        self.DEVICE_REG_DATA |= (0x1 << 2)
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
-
-    def OFF_4(self):
-        print('OFF_4...')
-        self.DEVICE_REG_DATA |= (0x1 << 3)
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
-
-    def ALLON(self):
-        print('ALL ON...')
-        self.DEVICE_REG_DATA &= ~(0xf << 0)
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
-
-    def ALLOFF(self):
-        print('ALL OFF...')
-        self.DEVICE_REG_DATA |= (0xf << 0)
-        bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_REG_MODE1, self.DEVICE_REG_DATA)
+    @classmethod
+    def relay_get_port_status(cls, relay_num: int) -> bool:
+        cls.logger.debug(f'Checking status of relay {relay_num}')
+        res = cls.relay_get_port_data(relay_num)
+        if res > 0:
+            mask = 1 << (relay_num - 1)
+            return (cls.DEVICE_DATA & mask) == 0
+        else:
+            cls.logger.debug("Specified relay port is invalid")
+            return False
+        
+    @classmethod
+    def relay_get_port_data(cls, relay_num: int) -> int:
+        cls.logger.debug(f'Reading relay status value for relay {relay_num}')
+        if 0 < relay_num <= cls.NUM_RELAY_PORTS:
+            device_reg_data = cls.bus.read_byte_data(cls.DEVICE_ADDRESS, cls.DEVICE_OUTPUT_PORT_REGISTER)
+            return device_reg_data
+        else:
+            cls.logger.debug("Specified relay port is invalid")
+            return 0
