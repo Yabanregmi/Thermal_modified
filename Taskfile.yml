@@ -15,6 +15,7 @@ tasks:
 
   install_backend:
     cmds:
+      - npm install --save-dev @types/express @types/socket.io
       - npm install --prefix backend
 
   install_frontend:
@@ -60,7 +61,8 @@ tasks:
 
   run_backend:
     cmds:
-      - npm start --prefix backend
+      - npm run dev --prefix backend # Starte TypeScript direkt (ts-node)
+      #- npm start --prefix backend
 
   run_frontend:
     cmds:
@@ -74,7 +76,9 @@ tasks:
     cmds:
       - rm -rf cpp/build
       - rm -rf backend/node_modules
+      - rm -rf backend/dist
       - rm -rf frontend/node_modules
+      - rm -rf backend/tsconfig.tsbuildinfo
       - find python -name "__pycache__" -type d -exec rm -rf {} +
       - find python -name "*.pyc" -delete
       - rm -rf python/venv

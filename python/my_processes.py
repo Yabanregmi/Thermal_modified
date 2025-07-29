@@ -244,28 +244,32 @@ class ServerProcess(multiprocessing.Process):
             self.events.error_on_connection.set()
 
             if not self.is_connected_error :
-                self.logger.debug(f"Connection error: {data}")
+                self.logger.warning(f"Connection error: {data}")
                 self.is_connected_error = True
 
         @self.sio.event
         def message(data: Optional[Any] = None) -> None:
             self.events.message.set()
-            self.logger.debug(f"server_message: {data}")
+            self.logger.warning(f"server_message: {data}")
 
         @self.sio.event
         def alarm(data: Optional[Any] = None) -> None:
             self.events.alarm.set()
-            self.logger.debug(f"alarm: {data}")
+            self.logger.warning(f"alarm: {data}")
 
         @self.sio.event
         def on_konfig_start() -> None:
             self.in_konfig_modus = True
-            self.logger.debug("konfig_start")
+            self.logger.warning("konfig_start")
 
         @self.sio.event
         def on_konfig_ende() -> None:
             self.in_konfig_modus = False
-            self.logger.debug("konfig_ende")
+            self.logger.warning("konfig_ende")
+
+        @self.sio.event
+        def on_test_status() -> None:
+            self.logger.warning("set test_status")
 
     def shutdown(self):
         if not self.events.shutdown.is_set():
