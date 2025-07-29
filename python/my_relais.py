@@ -8,7 +8,7 @@ class Relay:
     DEVICE_CONFIGURATION_REGISTER: int = 0x06
     DEVICE_OUTPUT_PORT_REGISTER: int = 0x02
     DEVICE_SET_PINS_AS_OUTPUTS: int = 0x00
-    DEVICE_DATA: int = 0xff
+    DEVICE_DATA: int = 0x00
 
     # Statusflags (global für alle Relais im System!)
     relay_1_is_set: bool = False
@@ -99,7 +99,7 @@ class Relay:
     def _relay_on(cls, relay_num: int) -> None:
         if 0 < relay_num <= cls.NUM_RELAY_PORTS:
             cls.logger.debug(f'Relay {relay_num} ON')
-            cls.DEVICE_DATA &= ~(0x1 << (relay_num - 1))
+            cls.DEVICE_DATA |= (0x1 << (relay_num - 1))
             cls.bus.write_byte_data(cls.DEVICE_ADDRESS, cls.DEVICE_OUTPUT_PORT_REGISTER, cls.DEVICE_DATA)
         else:
             cls.logger.debug(f'Invalid relay #: {relay_num}')
@@ -108,7 +108,7 @@ class Relay:
     def _relay_off(cls, relay_num: int) -> None:
         if 0 < relay_num <= cls.NUM_RELAY_PORTS:
             cls.logger.debug(f'Relay {relay_num} OFF')
-            cls.DEVICE_DATA |= (0x1 << (relay_num - 1))
+            cls.DEVICE_DATA &= ~(0x1 << (relay_num - 1))
             cls.bus.write_byte_data(cls.DEVICE_ADDRESS, cls.DEVICE_OUTPUT_PORT_REGISTER, cls.DEVICE_DATA)
         else:
             cls.logger.debug(f'Invalid relay #: {relay_num}')

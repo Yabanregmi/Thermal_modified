@@ -15,6 +15,7 @@ export default function LoginForm({ onLogin }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
+        credentials: "omit", // <-- das ist wichtig!
       });
       const data = await res.json();
       if (!res.ok) {

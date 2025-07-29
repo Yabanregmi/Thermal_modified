@@ -2,8 +2,7 @@ from typing import Dict, Type
 import unittest
 import multiprocessing
 import time
-from myProcesses import MyEvent, MyQueue, ProcessManager, ServerProcess
-
+from my_processes import MyEvent, MyQueue, ProcessManager, ServerProcess, MyTimerThread
 
 class TestProcessManager(unittest.TestCase):
     def setUp(self):

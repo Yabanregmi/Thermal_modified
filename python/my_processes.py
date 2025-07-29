@@ -2,13 +2,14 @@ import multiprocessing
 from multiprocessing import Queue, Event
 import time
 from models.myDataclasses import QueueMessage
-from typing import Optional, Dict, Any, Type
+from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass, field
 import socketio
+from threading import Thread
 
 MAXIMUM_TIMEOUT: int = 10
 QUEUE_MAXSIZE: int = 128
-
+    
 class MyEvent:
     """
     Wrapper-Klasse für multiprocessing.Event, um einen einheitlichen Umgang mit Events zu ermöglichen.
@@ -82,6 +83,104 @@ class ReadOnlyQueue:
 
     def put(self, item: QueueMessage, block: bool = False, timeout: Optional[float] = 0) -> None:
         raise RuntimeError("This queue is read-only!")
+
+class MyTimerThread(Thread):
+    """
+    Timer-Thread, der nach Ablauf eines Intervalls eine Funktion ausführt.
+    Beispiel:
+        t = MyTimerThread("Timer1", logger, 30, f)
+        t.start()
+        t.abort()    # Stoppt den Timer, falls noch nicht ausgelöst
+        t.restart()  # Startet den Timer erneut
+    """
+
+    def __init__(self, name: str, logger: Any, interval_s: int, function: Callable, shutdown : MyEvent):
+        if logger is None:
+            raise ValueError("Logger darf nicht None sein.")
+        if function is None:
+            raise ValueError("Keine Funktion übergeben")
+        if not (3 <= len(name) <= 50):
+            raise ValueError("Name muss zwischen 3 und 50 Zeichen lang sein.")
+
+        self._name = name
+        self._interval : int = interval_s
+        self._function : Callable = function
+        self._expired : MyEvent = MyEvent()
+        self._start_again : MyEvent= MyEvent()
+        self._is_aborted :bool = False
+        self._max_timeout :int= 10
+        self._logger = logger
+        self._is_error :bool = False
+        self.event_shutdown : MyEvent = shutdown
+
+        super().__init__(name=name)
+
+
+
+    def abort(self):
+        """Stop the timer if it hasn't finished yet."""
+        if not self._is_error:
+            self._is_aborted = True
+            self._expired.set()
+            
+    def restart(self):
+        """Startet den Timer erneut."""
+        if not self._is_error:
+            self._start_again.set()
+
+    def shutdown(self):
+        if not self.event_shutdown.is_set():
+            self.event_shutdown.set()
+
+    def run(self):
+        self._logger.debug(f"Timer {self.name} run")
+        self._start_again.set() # Skip first loop query
+
+        while self._start_again.wait(self._max_timeout) and not self._is_error and not self.event_shutdown.is_set():
+            try:
+                 # User definied waiting 
+                self._expired.wait(self._interval)
+                if not self._is_aborted:
+                    self._function()
+                self._is_aborted = False
+
+            except Exception as e:
+                self._logger.critical(f"Timer {self.name} unkown error")
+                self._is_error = True
+        
+        self.reset()
+
+        if self.event_shutdown.is_set():
+            self._logger.debug(f"Timer {self._name} shutdown successfully")
+        
+    def reset(self) -> None:
+        self._is_aborted = False
+        if self._expired.is_set():
+            self._expired.clear()
+
+        if self._start_again.is_set():
+            self._start_again.clear()
+    
+class user_input(Thread):
+    def __init__(self, logger : Any, aborted : MyEvent, shutdown : MyEvent):
+        super().__init__(name="user_input")
+        self.logger = logger
+        self.event_user_aborted : MyEvent = aborted
+        self.event_shutdown : MyEvent = shutdown
+
+    def shutdown(self):
+        if not self.event_shutdown.is_set():
+            self.event_shutdown.set()
+
+    def run(self):
+        while not self.event_shutdown.is_set():
+            if input() == 'q' :
+                self.event_user_aborted.set()
+                self.logger.debug(f"User q pressed")
+            time.sleep(0.1)
+        
+        if self.event_shutdown.is_set():
+            self.logger.debug(f"User input shutdown successfully")
 
 class ServerProcess(multiprocessing.Process):
     """
@@ -167,12 +266,18 @@ class ServerProcess(multiprocessing.Process):
         def on_konfig_ende() -> None:
             self.in_konfig_modus = False
             self.logger.debug("konfig_ende")
- 
+
+    def shutdown(self):
+        if not self.events.shutdown.is_set():
+            self.events.shutdown.set()
+
     def reset(self) -> bool:
-        self.logger.debug("ServerProcess shutdown initialisiert")
-        self.sio.disconnect()
-        self.is_connected = False
-        return self.events.disconnect.wait(timeout=MAXIMUM_TIMEOUT)
+        self.state : bool = True
+        if self.is_connected :
+            self.sio.disconnect()
+            self.is_connected = False
+            self.state = self.events.disconnect.wait(timeout=MAXIMUM_TIMEOUT)
+        return self.state
     
     def run(self) -> None:
         self.logger.debug("ServerProcess gestartet")
@@ -192,13 +297,13 @@ class ServerProcess(multiprocessing.Process):
                     self.is_connected = self.events.connect.wait(timeout=MAXIMUM_TIMEOUT)
                 except Exception:
                     self.is_connected = False
-
-            if self.is_connected:
-                self.events.heartbeat.set()
+            self.events.heartbeat.set()
             time.sleep(1)
         
         if not self.reset():
             self.logger.debug("ServerProcess shutdown error")
+        else:
+            self.logger.debug("ServerProcess shutdown successfully")
         time.sleep(1)
 
 class ProcessManager:

@@ -23,12 +23,6 @@ const getApi = function({ database }) {
 
     const server_express = express();
 
-
-    // Setup von CORS und JSON-Body-Parser Middlewareich
-    server_express.use(cors({
-        origin: "*",
-        credentials: true
-    }));
     server_express.use(body_parser.json());
 
     // HTTP-Routen
@@ -39,10 +33,10 @@ const getApi = function({ database }) {
     const server_http = http.createServer(server_express);
 
     const io = new Server(server_http, {
-        cors: {
-            origin:"*",
-            credentials: true
-        }
+    cors: {
+        origin: "http://localhost:3000", // explizit die Origin angeben!
+        credentials: true                // wichtig!
+    }
     });
 
     // Socket.io: Registriere alle Event-Handler bei jeder neuen Verbindung
