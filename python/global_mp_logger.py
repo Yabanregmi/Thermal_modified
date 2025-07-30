@@ -65,17 +65,3 @@ class GlobalMPLogger:
         if cls.listener_process:
             cls.listener_process.terminate()
             cls.listener_process.join()
-
-# if __name__ == "__main__":
-#     GlobalMPLogger.configure(Path("log.txt"), logging.DEBUG)
-#     GlobalMPLogger.start()
-
-#     logger_main_process = GlobalMPLogger.get_logger("mainprozess")
-
-#     logger_main_process.info("Thread meldet: TEST 1")
-#     logger_main_process.error("Thread meldet: TEST 2")
-
-#     # Wichtig: Gib dem Listener Zeit, die Queue zu verarbeiten!
-#     time.sleep(1)
-
-#     GlobalMPLogger.stop()
