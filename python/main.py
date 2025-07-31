@@ -1,5 +1,4 @@
 import logging
-#import keyboard
 import time
 from my_processes import (
     ProcessManager,
@@ -18,8 +17,6 @@ timer_heartbeat_is_set_expired : bool = False
 def shutdown_all_processes():
     for name in ProcessManager.processes:
         ProcessManager.shutdown_process(name=name)
-    # for name in ProcessManager.processes:
-    #     ProcessManager.join_process(name=name)
 
 
 def check_all_heartbeats() -> list[ServerProcess]:

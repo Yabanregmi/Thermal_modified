@@ -1,37 +1,99 @@
-import multiprocessing
-from multiprocessing import Queue, Event
-import time
-from models.myDataclasses import QueueMessage
+"""
+Dieses Modul stellt eine robuste Infrastruktur für die Verwaltung,
+Überwachung und Kommunikation von Multiprozess-Systemen bereit.
+
+Enthalten sind Wrapper-Klassen für Events und Queues, 
+spezialisierte Thread- und Prozessklassen sowie ein zentrales Prozess-Management.
+Die Architektur ermöglicht die sichere und flexible Steuerung von Serverprozessen 
+mit Hilfe von Events, Timern und interprozessualer Kommunikation.
+
+Hauptbestandteile:
+- MyEvent: Wrapper für multiprocessing.Event für einen einheitlichen Umgang mit Events.
+- ServerEvents: Dataclass zur Bündelung aller relevanten Events für Serverprozesse.
+- MyQueue, WriteOnlyQueue, ReadOnlyQueue: Wrapper für multiprocessing.Queue
+    mit Zugriffsbeschränkungen.
+- MyTimerThread: Thread-basierter Timer zur wiederholten Ausführung von Funktionen.
+- user_input: Thread zur Verarbeitung von Benutzereingaben zur Laufzeitkontrolle.
+- ServerProcess: Basisklasse für Prozesse mit serverseitiger Kommunikation (z.B. über SocketIO).
+- ProcessManager: Zentrale Klasse zur Verwaltung, Überwachung, Steuerung und Terminierung 
+    aller Prozesse im System.
+
+Typische Anwendungsfälle:
+- Steuerung und Überwachung von Serverprozessen in verteilten Systemen.
+- Sichere Kommunikation und Synchronisation zwischen Prozessen und Threads.
+- Einfache Erweiterbarkeit für weitere Prozess- und Eventtypen.
+
+Abhängigkeiten:
+- multiprocessing, threading, socketio, time, dataclasses, typing
+
+Hinweis:
+Dieses Modul ist für den Einsatz in Systemen mit hohen Anforderungen an Parallelität, 
+Zuverlässigkeit und Wartbarkeit konzipiert.
+"""
 from typing import Optional, Dict, Any, Callable
-from dataclasses import dataclass, field
-import socketio
+import multiprocessing
 from threading import Thread
+import time
+from dataclasses import dataclass, field
+from multiprocessing import Queue, Event
+import socketio
+from models.myDataclasses import QueueMessage
 
 MAXIMUM_TIMEOUT: int = 10
 QUEUE_MAXSIZE: int = 128
-    
+
 class MyEvent:
     """
-    Wrapper-Klasse für multiprocessing.Event, um einen einheitlichen Umgang mit Events zu ermöglichen.
+    Wrapper-Klasse für multiprocessing.Event, um einen 
+
+    einheitlichen Umgang mit Events zu ermöglichen.
     """
 
     def __init__(self) -> None:
+        """
+        Initialisiert das interne Event-Objekt.
+        """
         self._event = multiprocessing.Event()
 
     def is_set(self) -> bool:
+        """
+        Prüft, ob das Event gesetzt ist.
+
+        Returns:
+            bool: True, wenn das Event gesetzt ist, sonst False.
+        """
         return self._event.is_set()
 
     def set(self) -> None:
+        """
+        Setzt das Event.
+        """
         self._event.set()
 
     def clear(self) -> None:
+        """
+        Löscht das Event (setzt es zurück).
+        """
         self._event.clear()
 
     def wait(self, timeout: Optional[int] = None) -> bool:
+        """
+        Wartet, bis das Event gesetzt wird oder das Timeout abläuft.
+
+        Args:
+            timeout (Optional[int]): Maximale Wartezeit in Sekunden.
+
+        Returns:
+            bool: True, wenn das Event gesetzt wurde, sonst False.
+        """
         return self._event.wait(timeout)
+
 
 @dataclass
 class ServerEvents:
+    """
+    Sammlung von Events zur Steuerung und Überwachung des Server-Prozesses.
+    """
     shutdown: MyEvent = field(default_factory=MyEvent)
     heartbeat: MyEvent = field(default_factory=MyEvent)
     connect: MyEvent = field(default_factory=MyEvent)
@@ -39,8 +101,8 @@ class ServerEvents:
     message: MyEvent = field(default_factory=MyEvent)
     alarm: MyEvent = field(default_factory=MyEvent)
     error_on_connection: MyEvent = field(default_factory=MyEvent)
-    error_from_server_process : MyEvent  = field(default_factory=MyEvent)
-    server_process_okay : MyEvent  = field(default_factory=MyEvent)
+    error_from_server_process: MyEvent = field(default_factory=MyEvent)
+    server_process_okay: MyEvent = field(default_factory=MyEvent)
 
 class MyQueue:
     """
@@ -48,13 +110,35 @@ class MyQueue:
     """
 
     def __init__(self) -> None:
+        """
+        Initialisiert die interne Queue mit fester Maximalgröße.
+        """
         self._queue: Queue[QueueMessage] = Queue(maxsize=QUEUE_MAXSIZE)
 
     def put(self, item: QueueMessage, block: bool = False, timeout: Optional[float] = 0) -> None:
+        """
+        Fügt ein Element zur Queue hinzu.
+
+        Args:
+            item (QueueMessage): Das hinzuzufügende Element.
+            block (bool): Ob blockierend gewartet werden soll.
+            timeout (Optional[float]): Maximale Wartezeit.
+        """
         self._queue.put(item, block, timeout)
 
     def get(self, block: bool = False, timeout: Optional[float] = 0) -> QueueMessage:
+        """
+        Entnimmt ein Element aus der Queue.
+
+        Args:
+            block (bool): Ob blockierend gewartet werden soll.
+            timeout (Optional[float]): Maximale Wartezeit.
+
+        Returns:
+            QueueMessage: Das entnommene Element.
+        """
         return self._queue.get(block, timeout)
+
 
 class WriteOnlyQueue:
     """
@@ -62,13 +146,31 @@ class WriteOnlyQueue:
     """
 
     def __init__(self, queue: MyQueue) -> None:
+        """
+        Initialisiert die WriteOnlyQueue mit einer existierenden MyQueue.
+        """
         self._queue: MyQueue = queue
 
     def put(self, item: QueueMessage, block: bool = False, timeout: Optional[float] = 0) -> None:
+        """
+        Fügt ein Element zur Queue hinzu.
+
+        Args:
+            item (QueueMessage): Das hinzuzufügende Element.
+            block (bool): Ob blockierend gewartet werden soll.
+            timeout (Optional[float]): Maximale Wartezeit.
+        """
         return self._queue.put(item=item, block=block, timeout=timeout)
 
     def get(self, block: bool = False, timeout: Optional[float] = 0) -> QueueMessage:
+        """
+        Das Lesen aus der Queue ist nicht erlaubt.
+
+        Raises:
+            RuntimeError: Diese Queue ist nur zum Schreiben.
+        """
         raise RuntimeError("This queue is write-only!")
+
 
 class ReadOnlyQueue:
     """
@@ -76,25 +178,59 @@ class ReadOnlyQueue:
     """
 
     def __init__(self, queue: MyQueue) -> None:
+        """
+        Initialisiert die ReadOnlyQueue mit einer existierenden MyQueue.
+        """
         self._queue: MyQueue = queue
 
     def get(self, block: bool = False, timeout: Optional[float] = 0) -> QueueMessage:
+        """
+        Entnimmt ein Element aus der Queue.
+
+        Args:
+            block (bool): Ob blockierend gewartet werden soll.
+            timeout (Optional[float]): Maximale Wartezeit.
+
+        Returns:
+            QueueMessage: Das entnommene Element.
+        """
         return self._queue.get(block=block, timeout=timeout)
 
     def put(self, item: QueueMessage, block: bool = False, timeout: Optional[float] = 0) -> None:
+        """
+        Das Schreiben in die Queue ist nicht erlaubt.
+
+        Raises:
+            RuntimeError: Diese Queue ist nur zum Lesen.
+        """
         raise RuntimeError("This queue is read-only!")
 
 class MyTimerThread(Thread):
     """
     Timer-Thread, der nach Ablauf eines Intervalls eine Funktion ausführt.
+
     Beispiel:
-        t = MyTimerThread("Timer1", logger, 30, f)
+        t = MyTimerThread("Timer1", logger, 30, f, shutdown_event)
         t.start()
         t.abort()    # Stoppt den Timer, falls noch nicht ausgelöst
         t.restart()  # Startet den Timer erneut
     """
 
-    def __init__(self, name: str, logger: Any, interval_s: int, function: Callable, shutdown : MyEvent):
+    def __init__(self, name: str, logger: Any, interval_s: int, function: Callable, 
+                    shutdown : MyEvent):
+        """
+        Initialisiert den Timer-Thread.
+
+        Args:
+            name (str): Name des Timers.
+            logger (Any): Logger-Objekt.
+            interval_s (int): Intervall in Sekunden.
+            function (Callable): Auszuführende Funktion nach Ablauf.
+            shutdown (MyEvent): Event zum Beenden des Threads.
+
+        Raises:
+            ValueError: Bei ungültigen Parametern.
+        """
         if logger is None:
             raise ValueError("Logger darf nicht None sein.")
         if function is None:
@@ -118,21 +254,31 @@ class MyTimerThread(Thread):
 
 
     def abort(self):
-        """Stop the timer if it hasn't finished yet."""
+        """
+        Stoppt den Timer, falls er noch nicht ausgelöst wurde.
+        """
         if not self._is_error:
             self._is_aborted = True
             self._expired.set()
             
     def restart(self):
-        """Startet den Timer erneut."""
+        """
+        Startet den Timer erneut.
+        """
         if not self._is_error:
             self._start_again.set()
 
     def shutdown(self):
+        """
+        Setzt das Shutdown-Event, um den Thread zu beenden.
+        """
         if not self.event_shutdown.is_set():
             self.event_shutdown.set()
 
     def run(self):
+        """
+        Startet den Timer-Thread und ruft nach Ablauf die Funktion auf.
+        """
         self._logger.debug(f"Timer {self.name} run")
         self._start_again.set() # Skip first loop query
 
@@ -154,6 +300,9 @@ class MyTimerThread(Thread):
             self._logger.debug(f"Timer {self._name} shutdown successfully")
         
     def reset(self) -> None:
+        """
+        Setzt den Timer-Zustand zurück.
+        """
         self._is_aborted = False
         if self._expired.is_set():
             self._expired.clear()
@@ -162,17 +311,34 @@ class MyTimerThread(Thread):
             self._start_again.clear()
     
 class user_input(Thread):
+    """
+    Thread zur Verarbeitung von Benutzereingaben, speziell zum Abbruch oder Herunterfahren.
+    """
     def __init__(self, logger : Any, aborted : MyEvent, shutdown : MyEvent):
+        """
+        Initialisiert den user_input-Thread.
+
+        Args:
+            logger (Any): Logger-Objekt.
+            aborted (MyEvent): Event für Benutzerabbruch.
+            shutdown (MyEvent): Event für Shutdown.
+        """
         super().__init__(name="user_input")
         self.logger = logger
         self.event_user_aborted : MyEvent = aborted
         self.event_shutdown : MyEvent = shutdown
 
     def shutdown(self):
+        """
+        Setzt das Shutdown-Event, um den Thread zu beenden.
+        """
         if not self.event_shutdown.is_set():
             self.event_shutdown.set()
 
     def run(self):
+        """
+        Wartet auf Benutzereingabe ('q'), um das Abbruch-Event zu setzen.
+        """
         while not self.event_shutdown.is_set():
             if input() == 'q' :
                 self.event_user_aborted.set()
@@ -184,7 +350,7 @@ class user_input(Thread):
 
 class ServerProcess(multiprocessing.Process):
     """
-    Basisklasse für alle Prozesse im System.
+    Basisklasse für alle Prozesse im System, die mit dem Server kommunizieren.
     """
     logger: Any
     url: str
@@ -195,6 +361,18 @@ class ServerProcess(multiprocessing.Process):
     is_connected_error : bool
 
     def __init__(self, logger: Any, name: str, url: str, events: ServerEvents) -> None:
+        """
+        Initialisiert den ServerProcess.
+
+        Args:
+            logger (Any): Logger-Objekt.
+            name (str): Name des Prozesses.
+            url (str): Server-URL.
+            events (ServerEvents): Events zur Steuerung.
+
+        Raises:
+            ValueError: Bei ungültigen Parametern.
+        """
         if logger is None:
             raise ValueError("Logger darf nicht None sein.")
 
@@ -225,6 +403,9 @@ class ServerProcess(multiprocessing.Process):
         self._register_sio_events()
         
     def _register_sio_events(self) -> None:
+        """
+        Registriert die socketio-Events für die Kommunikation mit dem Server.
+        """
         @self.sio.event
         def connect() -> None:
             self.is_connected = True
@@ -272,10 +453,19 @@ class ServerProcess(multiprocessing.Process):
             self.logger.warning("set test_status")
 
     def shutdown(self):
+        """
+        Setzt das Shutdown-Event, um den Prozess zu beenden.
+        """
         if not self.events.shutdown.is_set():
             self.events.shutdown.set()
 
     def reset(self) -> bool:
+        """
+        Setzt den Prozess zurück und trennt die Verbindung.
+
+        Returns:
+            bool: True, wenn die Verbindung erfolgreich getrennt wurde, sonst False.
+        """
         self.state : bool = True
         if self.is_connected :
             self.sio.shutdown()
@@ -285,9 +475,15 @@ class ServerProcess(multiprocessing.Process):
         return self.state
     
     def server_ack(self) -> None:
+        """
+        Callback-Funktion für Server-Bestätigungen.
+        """
         self.logger.debug("Server ack")
     
     def run(self) -> None:
+        """
+        Führt die Hauptlogik des Server-Prozesses aus.
+        """
         self.logger.debug("ServerProcess gestartet")
 
         while not self.events.shutdown.is_set():
@@ -326,6 +522,12 @@ class ProcessManager:
 
     @classmethod
     def getActiveCount(cls) -> int:
+        """
+        Gibt die Anzahl der aktiven Prozesse zurück.
+
+        Returns:
+            int: Anzahl aktiver Prozesse.
+        """
         return len(multiprocessing.active_children()) + 1
 
     @classmethod
