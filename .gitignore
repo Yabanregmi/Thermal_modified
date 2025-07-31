@@ -11,4 +11,4 @@ curl.txt
 *.db
 venv
 .venv
-./output
+output/
