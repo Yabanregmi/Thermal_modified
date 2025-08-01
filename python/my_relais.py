@@ -1,5 +1,5 @@
 import smbus2 as smbus
-from typing import Any, Optional
+from typing import Any, Optional, List
 from logging import Logger
 class Relay:
     # Konstanten
@@ -19,13 +19,22 @@ class Relay:
     # Logger und Bus (müssen vor Benutzung gesetzt werden)
     logger: Logger
     bus: smbus.SMBus
+    
+    relais_names : List[str] = ["","","",""]
 
     @classmethod
-    def init(cls, logger: Any, bus_nr: int = 1) -> None:
+    def init(cls, logger: Any, bus_nr: int = 1, relais_names : List[str] = ["","","",""]) -> None:
         cls.logger : Logger = logger
         cls.bus : smbus.SMBus = smbus.SMBus(bus_nr)
         cls.logger.warning(f"ADR: {cls.DEVICE_ADDRESS}, Ports {cls.NUM_RELAY_PORTS}")
         cls._reset_register()
+        
+        
+        if relais_names is not None and len(relais_names) > 4:
+            cls.relais_names = relais_names
+        else:
+            cls.relais_names = ["Relais1","Relais2","Relais3","Relais4"]
+        
         cls.all_off()
 
     @classmethod
@@ -36,49 +45,49 @@ class Relay:
     @classmethod
     def on_1(cls) -> None:
         if not cls.relay_1_is_set:
-            cls._relay_on(1)
+            cls._relay_on(relay_num=1, name=cls.relais_names[0])
             cls.relay_1_is_set = True
 
     @classmethod
     def on_2(cls) -> None:
         if not cls.relay_2_is_set:
-            cls._relay_on(2)
+            cls._relay_on(relay_num=2, name=cls.relais_names[1])
             cls.relay_2_is_set = True
 
     @classmethod
     def on_3(cls) -> None:
         if not cls.relay_3_is_set:
-            cls._relay_on(3)
+            cls._relay_on(relay_num=3, name=cls.relais_names[2])
             cls.relay_3_is_set = True
 
     @classmethod
     def on_4(cls) -> None:
         if not cls.relay_4_is_set:
-            cls._relay_on(4)
+            cls._relay_on(relay_num=4, name=cls.relais_names[3])
             cls.relay_4_is_set = True
 
     @classmethod
     def off_1(cls) -> None:
         if cls.relay_1_is_set:
-            cls._relay_off(1)
+            cls._relay_off(relay_num=1, name=cls.relais_names[0])
             cls.relay_1_is_set = False
 
     @classmethod
     def off_2(cls) -> None:
         if cls.relay_2_is_set:
-            cls._relay_off(2)
+            cls._relay_off(relay_num=2, name=cls.relais_names[1])
             cls.relay_2_is_set = False
 
     @classmethod
     def off_3(cls) -> None:
         if cls.relay_3_is_set:
-            cls._relay_off(3)
+            cls._relay_off(relay_num=3, name=cls.relais_names[2])
             cls.relay_3_is_set = False
 
     @classmethod
     def off_4(cls) -> None:
         if cls.relay_4_is_set:
-            cls._relay_off(4)
+            cls._relay_off(relay_num=4, name=cls.relais_names[3])
             cls.relay_4_is_set = False
 
     @classmethod
@@ -96,30 +105,30 @@ class Relay:
         cls.off_4()
 
     @classmethod
-    def _relay_on(cls, relay_num: int) -> None:
+    def _relay_on(cls, relay_num: int, name : str) -> None:
         if 0 < relay_num <= cls.NUM_RELAY_PORTS:
-            cls.logger.warning(f'Relay {relay_num} ON')
+            cls.logger.warning(f'Relay {name} ON')
             cls.DEVICE_DATA |= (0x1 << (relay_num - 1))
             cls.bus.write_byte_data(cls.DEVICE_ADDRESS, cls.DEVICE_OUTPUT_PORT_REGISTER, cls.DEVICE_DATA)
         else:
-            cls.logger.warning(f'Invalid relay #: {relay_num}')
+            cls.logger.warning(f'Invalid relay #: {name}')
 
     @classmethod
-    def _relay_off(cls, relay_num: int) -> None:
+    def _relay_off(cls, relay_num: int, name : str) -> None:
         if 0 < relay_num <= cls.NUM_RELAY_PORTS:
-            cls.logger.warning(f'Relay {relay_num} OFF')
+            cls.logger.warning(f'Relay {name} OFF')
             cls.DEVICE_DATA &= ~(0x1 << (relay_num - 1))
             cls.bus.write_byte_data(cls.DEVICE_ADDRESS, cls.DEVICE_OUTPUT_PORT_REGISTER, cls.DEVICE_DATA)
         else:
-            cls.logger.warning(f'Invalid relay #: {relay_num}')
+            cls.logger.warning(f'Invalid relay #: {name}')
 
     @classmethod
-    def relay_toggle_port(cls, relay_num: int) -> None:
-        cls.logger.warning(f'Toggling relay: {relay_num}')
+    def relay_toggle_port(cls, relay_num: int, name : str) -> None:
+        cls.logger.warning(f'Toggling relay: {name}')
         if cls.relay_get_port_status(relay_num):
-            cls._relay_off(relay_num)
+            cls._relay_off(relay_num, name)
         else:
-            cls._relay_on(relay_num)
+            cls._relay_on(relay_num, name)
 
     @classmethod
     def relay_get_port_status(cls, relay_num: int) -> bool:

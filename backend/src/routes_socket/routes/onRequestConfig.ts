@@ -5,7 +5,7 @@ import { ConfigLock } from '../../getApi';
 // Zod-Schema für das Event-Payload (kein Payload erwartet)
 const requestConfigSchema = z.undefined(); // oder z.void()
 
-export function requestConfig(
+export function onRequestConfig(
   socket: Socket,
   configLock: ConfigLock
 ) {
@@ -21,7 +21,7 @@ export function requestConfig(
       configLock.id = socket.id;
       socket.emit("lockConfigSuccess");
     } else {
-      socket.emit('lockConfigDenied', { reason: "already_locked" });
+      socket.emit('lockConfigDenied', { reason: "already_locked", id: configLock.id });
     }
   });
 }

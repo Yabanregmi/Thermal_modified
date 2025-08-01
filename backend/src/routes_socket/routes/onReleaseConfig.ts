@@ -5,7 +5,7 @@ import { ConfigLock } from '../../getApi';
 // Zod-Schema für das Event-Payload (hier: kein Payload)
 const releaseConfigSchema = z.undefined(); // oder z.void()
 
-export function releaseConfig(
+export function onReleaseConfig(
   socket: Socket,
   configLock: ConfigLock
 ) {
@@ -20,6 +20,7 @@ export function releaseConfig(
     if (configLock.id === socket.id) {
       configLock.id = "";
       socket.emit('lockReleased');
+      socket.broadcast.emit('lockFreed')
     } else {
       socket.emit('lockReleasedDenied', { reason: "not_lock_owner" });
     }

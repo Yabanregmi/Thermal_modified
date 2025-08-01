@@ -5,7 +5,7 @@ import { ConfigLock } from '../../getApi';
 // Zod-Schema für das Event-Payload (hier: kein Payload)
 const refreshConfigLockSchema = z.undefined(); // oder: z.void()
 
-export function refreshConfigLock(
+export function onRefreshConfigLock(
   socket: Socket,
   configLock: ConfigLock,
   AUTO_RELEASE_MS: number

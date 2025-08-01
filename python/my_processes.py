@@ -399,13 +399,6 @@ class ServerProcess(multiprocessing.Process):
             reconnection_delay_max=5,
             handle_sigint=False
         )
-
-        self._register_sio_events()
-        
-    def _register_sio_events(self) -> None:
-        """
-        Registriert die socketio-Events für die Kommunikation mit dem Server.
-        """
         @self.sio.event
         def connect() -> None:
             self.is_connected = True
@@ -451,6 +444,7 @@ class ServerProcess(multiprocessing.Process):
         @self.sio.event
         def on_test_status() -> None:
             self.logger.warning("set test_status")
+        
 
     def shutdown(self):
         """
@@ -501,7 +495,7 @@ class ServerProcess(multiprocessing.Process):
         
             if not self.is_connected:
                 try:
-                    self.sio.connect(self.url, transports="websocket")
+                    self.sio.connect(self.url, transports=["websocket"])
                     self.is_connected = self.events.connect.wait(timeout=MAXIMUM_TIMEOUT)
                 except Exception:
                     self.is_connected = False

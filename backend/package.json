@@ -9,7 +9,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "ts-node src/index.ts",
     "test-socket": "node src/routes_socket/test_routes/testSocket.js",
-    "test-multiSocket" : "node src/routes_socket/test_routes/testMultiSocket"
+    "test-multiSocket" : "node src/routes_socket/test_routes/testMultiSocket",
+    "test-multiSocketWithRelease" : "node src/routes_socket/test_routes/testMultiSocketWithRelease"
   },
   "keywords": [],
   "author": "",

@@ -2,7 +2,7 @@ import logging
 import time
 from my_processes import (
     ProcessManager,
-    ServerProcess
+    ServerProcess,
 )
 from global_mp_logger import GlobalMPLogger as my_logger
 from my_processes import ServerEvents, MyEvent, MyTimerThread, user_input

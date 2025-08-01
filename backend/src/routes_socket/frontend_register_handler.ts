@@ -6,11 +6,11 @@ import { onSetSchwelle } from './routes/onSetSchwelle';
 import { onGetSchwelle } from './routes/onGetSchwelle';
 import { onLiveTemperatur, TemperaturMsg} from './routes/onLiveTemperatur';
 import { onGetHistogramm } from './routes/onGetHistogramm';
-import { requestConfig } from './routes/requestConfig';
-import { releaseConfig } from './routes/releaseConfig';
-import { refreshConfigLock } from './routes/refreshConfigLock';
+import { onRequestConfig } from './routes/onRequestConfig';
+import { onReleaseConfig } from './routes/onReleaseConfig';
+import { onRefreshConfigLock } from './routes/onRefreshConfigLock';
 import { ConfigLock } from '../getApi';
-
+import { onDisconnect } from './routes/onDisconnect';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Database } from '../database/Sqlite3Database';
 
@@ -52,9 +52,10 @@ export function createSocketHandlers({
   setLetzteLiveTemperatur
 }: SocketHandlersProps) {
   return function (socket: Socket) {
-    requestConfig(socket, configLock);
-    releaseConfig(socket, configLock);
-    refreshConfigLock(socket, configLock, AUTO_RELEASE_MS);
+    onDisconnect(socket, configLock);
+    onRequestConfig(socket, configLock);
+    onReleaseConfig(socket, configLock);
+    onRefreshConfigLock(socket, configLock, AUTO_RELEASE_MS);
     // Handler für den Start der Konfiguration
     onKonfigStart(socket, server_socket, {
       konfigAckTimeoutRef: () => konfigAckTimeout,
