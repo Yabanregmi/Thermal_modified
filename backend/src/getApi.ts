@@ -54,7 +54,7 @@ export function getApi({ database }: { database: Database }): ApiServers {
 
   // CORS restriktiv konfigurieren!
   appFrontend.use(cors({
-    origin: ['http://localhost:3000'], // In Produktion: echte Domain(en) eintragen!
+    origin: ['http://localhost:4000'], // In Produktion: echte Domain(en) eintragen!
     credentials: true
   }));
 
@@ -78,7 +78,7 @@ export function getApi({ database }: { database: Database }): ApiServers {
 
   const ioFrontend: SocketIOServer = new SocketIOServer(server_frontend, {
     cors: {
-      origin: "http://localhost:3000",
+      origin: "http://localhost:4000",
       credentials: true
     }
   });
@@ -116,7 +116,7 @@ export function getApi({ database }: { database: Database }): ApiServers {
   // Security auch für interne API
   appIntern.use(helmet());
   appIntern.use(cors({
-    origin: ['http://localhost:4002'], // In Produktion: echte Domain(en) eintragen!
+    origin: "http://localhost:4001", // In Produktion: echte Domain(en) eintragen!
     credentials: true
   }));
   appIntern.use(bodyParser.json({ limit: '1mb' }));
@@ -125,14 +125,14 @@ export function getApi({ database }: { database: Database }): ApiServers {
 
   const ioIntern: SocketIOServer = new SocketIOServer(server_intern, {
     cors: {
-      origin: "http://localhost:4002",
+      origin: "http://localhost:4001",
       credentials: true
     }
   });
 
-  ioIntern.use((socket,next) => {
-    let handshake = socket.handshake;
-  });
+  // ioIntern.use((socket,next) => {
+  //   let handshake = socket.handshake;
+  // });
 
   ioIntern.on('connection', intern_register_handlers());
 

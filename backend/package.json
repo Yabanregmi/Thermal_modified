@@ -7,7 +7,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "test-socket": "node src/routes_socket/test_routes/testSocket.js",
+    "test-multiSocket" : "node src/routes_socket/test_routes/testMultiSocket"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +23,7 @@
     "helmet": "^8.1.0",
     "express-rate-limit": "^7.0.0",
     "socket.io": "^4.8.1",
+    "socket.io-client": "^4.7.5",
     "sqlite": "^5.1.1",
     "sqlite3": "^5.1.7",
     "zod": "^3.23.8"

@@ -8,11 +8,12 @@ import { onLiveTemperatur, TemperaturMsg} from './routes/onLiveTemperatur';
 import { onGetHistogramm } from './routes/onGetHistogramm';
 import { requestConfig } from './routes/requestConfig';
 import { releaseConfig } from './routes/releaseConfig';
+import { refreshConfigLock } from './routes/refreshConfigLock';
 import { ConfigLock } from '../getApi';
 
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Database } from '../database/Sqlite3Database';
-import { refreshConfigLock } from './routes/refreshConfigLock';
+
 import { config } from 'process';
 
 // Typ für die Factory-Props
