@@ -5,27 +5,23 @@ export default function LoginForm({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
   const socket = useContext(SocketContext);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setLoading(true);
     try {
       const res = await fetch("http://localhost:4000/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
-        credentials: "omit", // Wichtig, falls kein Cookie-Login!
+        credentials: "omit", // <-- das ist wichtig!
       });
       const data = await res.json();
-      setLoading(false);
       if (!res.ok) {
         setError(data.error || "Login fehlgeschlagen");
         return;
       }
-      // Optional: Socket-Authentifizierung (falls Backend das erwartet)
       if (socket) {
         socket.emit("auth", {
           username: data.username,
@@ -35,7 +31,6 @@ export default function LoginForm({ onLogin }) {
       }
       onLogin && onLogin(data);
     } catch (err) {
-      setLoading(false);
       setError("Serverfehler");
     }
   };
@@ -51,7 +46,6 @@ export default function LoginForm({ onLogin }) {
         className="bg-white p-4 rounded-4 shadow-sm"
         style={{ minWidth: 320, maxWidth: 400, width: "100%" }}
         onSubmit={handleSubmit}
-        autoComplete="off"
       >
         <h2
           className="mb-4 text-center fw-semibold"
@@ -68,8 +62,6 @@ export default function LoginForm({ onLogin }) {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             autoFocus
-            autoComplete="username"
-            disabled={loading}
           />
         </div>
         <div className="mb-3">
@@ -81,8 +73,6 @@ export default function LoginForm({ onLogin }) {
             className="form-control"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            disabled={loading}
           />
         </div>
         {error && (
@@ -102,16 +92,8 @@ export default function LoginForm({ onLogin }) {
             boxShadow: "0 1px 6px 0 rgba(80, 80, 120, 0.09)",
           }}
           type="submit"
-          disabled={loading}
         >
-          {loading ? (
-            <span>
-              <span className="spinner-border spinner-border-sm me-2" />
-              Login ...
-            </span>
-          ) : (
-            "Login"
-          )}
+          Login
         </button>
       </form>
     </div>

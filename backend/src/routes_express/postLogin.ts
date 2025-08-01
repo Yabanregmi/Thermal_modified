@@ -11,6 +11,7 @@ const loginSchema = z.object({
 // Factory-Funktion für den Login-POST-Handler
 export function postLogin({ database }: { database: Database }): RequestHandler {
   return async (req: Request, res: Response) => {
+    console.log("Login");
     try {
       // Input-Validierung mit zod
       const parseResult = loginSchema.safeParse(req.body);

@@ -4,80 +4,16 @@ import User1Features from "./User1TemperaturAuslesen";
 
 export default function User2KonfigModus({ onLogout }) {
   const socket = useContext(SocketContext);
-
   const [schwelle, setSchwelle] = useState("");
   const [aktuelleSchwelle, setAktuelleSchwelle] = useState(null);
   const [konfigModus, setKonfigModus] = useState(false);
   const [loadingKonfig, setLoadingKonfig] = useState(false);
   const [nachricht, setNachricht] = useState("");
-  const [lockStatus, setLockStatus] = useState("none"); // "none", "waiting", "granted", "denied"
-  const [lockDeniedReason, setLockDeniedReason] = useState("");
   const timeoutRef = useRef(null);
-
-  // === LOCK-LOGIK ===
-
-  // Lock anfragen
-  const handleLockRequest = () => {
-    setLockStatus("waiting");
-    setNachricht("Frage Lock für Konfigurationsmodus an...");
-    socket.emit("requestConfig");
-  };
-
-  // Lock explizit freigeben
-  const handleLockRelease = () => {
-    socket.emit("releaseConfig");
-    setNachricht("Lock wird freigegeben...");
-    setLockStatus("none");
-  };
-
-  useEffect(() => {
-    function handleLockSuccess() {
-      setLockStatus("granted");
-      setNachricht("Lock erhalten! Du kannst jetzt den Konfigurationsmodus starten.");
-      setLoadingKonfig(false);
-    }
-    function handleLockDenied(data) {
-      setLockStatus("denied");
-      setLockDeniedReason(data?.reason || "");
-      setNachricht(
-        data?.reason === "already_locked"
-          ? "Lock ist bereits von einem anderen Benutzer belegt. Warte auf Freigabe."
-          : "Lock abgelehnt: " + (data?.reason || "")
-      );
-      setLoadingKonfig(false);
-    }
-    function handleLockReleased() {
-      setLockStatus("none");
-      setNachricht("Lock wurde freigegeben.");
-    }
-    function handleLockReleasedDenied(data) {
-      setNachricht("Lock konnte nicht freigegeben werden: " + (data?.reason || ""));
-    }
-    function handleLockFreed() {
-      setNachricht("Lock ist frei! Du kannst es erneut versuchen.");
-      // Optional: Automatisch erneut anfragen:
-      // handleLockRequest();
-    }
-
-    socket.on("lockConfigSuccess", handleLockSuccess);
-    socket.on("lockConfigDenied", handleLockDenied);
-    socket.on("lockReleased", handleLockReleased);
-    socket.on("lockReleasedDenied", handleLockReleasedDenied);
-    socket.on("lockFreed", handleLockFreed);
-
-    return () => {
-      socket.off("lockConfigSuccess", handleLockSuccess);
-      socket.off("lockConfigDenied", handleLockDenied);
-      socket.off("lockReleased", handleLockReleased);
-      socket.off("lockReleasedDenied", handleLockReleasedDenied);
-      socket.off("lockFreed", handleLockFreed);
-    };
-  }, [socket]);
 
   const handleKonfigButton = () => {
     setLoadingKonfig(true);
-    setNachricht("Frage Lock für Konfigurationsmodus an...");
-    socket.emit("requestConfig");
+    socket.emit("getKonfigStatus");
   };
 
   useEffect(() => {

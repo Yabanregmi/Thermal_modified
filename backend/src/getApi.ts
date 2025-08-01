@@ -54,7 +54,7 @@ export function getApi({ database }: { database: Database }): ApiServers {
 
   // CORS restriktiv konfigurieren!
   appFrontend.use(cors({
-    origin: ['http://localhost:4000'], // In Produktion: echte Domain(en) eintragen!
+    origin: ['http://localhost:3000'], // In Produktion: echte Domain(en) eintragen!
     credentials: true
   }));
 
@@ -71,17 +71,19 @@ export function getApi({ database }: { database: Database }): ApiServers {
   }));
 
   // HTTP-Routen
-  appFrontend.post('/api/login', postLogin({ database }));
+
 
   // HTTP-Server und Socket.io-Server initialisieren
   const server_frontend: HttpServer = http.createServer(appFrontend);
 
   const ioFrontend: SocketIOServer = new SocketIOServer(server_frontend, {
     cors: {
-      origin: "http://localhost:4000",
+      origin: "http://localhost:3000",
       credentials: true
     }
   });
+
+  appFrontend.post('/api/login', postLogin({ database }));
 
   // Getter/Setter-Objekt für Socket-Handler
   const konfigState: KonfigState = {
