@@ -9,10 +9,10 @@ import { z } from 'zod';
  * @param io - Die Socket.io-Server-Instanz (für Broadcasts)
  * @param options - Objekt mit Timeout-Getter/Setter und Getter/Setter für den Konfigurationsstatus
  */
-export function clientResponse(
+export function ack_config(
   socket: Socket
 ) {
-  socket.on("Client ack", (payload) => {
-    //console.log(payload);
+  socket.on("ack_config", (payload) => {
+    console.log(payload);
   });
 }

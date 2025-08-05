@@ -30,12 +30,14 @@ Hinweis:
 Dieses Modul ist für den Einsatz in Systemen mit hohen Anforderungen an Parallelität, 
 Zuverlässigkeit und Wartbarkeit konzipiert.
 """
-from typing import Optional, Dict, Any, Callable
+from ast import Pass
+from typing import Dict, Any, Callable
 import multiprocessing
 from threading import Thread
 import time
 from dataclasses import dataclass, field
 from multiprocessing import Queue, Event
+from xmlrpc.client import boolean
 import socketio
 from models.myDataclasses import QueueMessage
 
@@ -76,7 +78,7 @@ class MyEvent:
         """
         self._event.clear()
 
-    def wait(self, timeout: Optional[int] = None) -> bool:
+    def wait(self, timeout: int | None = None) -> bool:
         """
         Wartet, bis das Event gesetzt wird oder das Timeout abläuft.
 
@@ -86,7 +88,7 @@ class MyEvent:
         Returns:
             bool: True, wenn das Event gesetzt wurde, sonst False.
         """
-        return self._event.wait(timeout)
+        return self._event.wait(timeout = 0)
 
 
 @dataclass
@@ -103,7 +105,7 @@ class ServerEvents:
     error_on_connection: MyEvent = field(default_factory=MyEvent)
     error_from_server_process: MyEvent = field(default_factory=MyEvent)
     server_process_okay: MyEvent = field(default_factory=MyEvent)
-
+    
 class MyQueue:
     """
     Wrapper für multiprocessing.Queue mit fester Maximalgröße.
@@ -113,31 +115,35 @@ class MyQueue:
         """
         Initialisiert die interne Queue mit fester Maximalgröße.
         """
-        self._queue: Queue[QueueMessage] = Queue(maxsize=QUEUE_MAXSIZE)
+        self._queue: Queue = Queue(maxsize=QUEUE_MAXSIZE)
 
-    def put(self, item: QueueMessage, block: bool = False, timeout: Optional[float] = 0) -> None:
+    def put(self, item: QueueMessage) -> bool:
         """
-        Fügt ein Element zur Queue hinzu.
-
+        Fügt ein Element zur Queue hinzu, falls Platz ist.
         Args:
             item (QueueMessage): Das hinzuzufügende Element.
-            block (bool): Ob blockierend gewartet werden soll.
-            timeout (Optional[float]): Maximale Wartezeit.
+        Returns:
+            bool: True, wenn das Element hinzugefügt wurde, sonst False.
         """
-        self._queue.put(item, block, timeout)
+        if not self._queue.full():
+            self._queue.put_nowait(item)
+            return True
+        return False
 
-    def get(self, block: bool = False, timeout: Optional[float] = 0) -> QueueMessage:
+    def get(self) -> QueueMessage | None:
         """
         Entnimmt ein Element aus der Queue.
-
-        Args:
-            block (bool): Ob blockierend gewartet werden soll.
-            timeout (Optional[float]): Maximale Wartezeit.
-
         Returns:
-            QueueMessage: Das entnommene Element.
+            Optional[QueueMessage]: Das entnommene Element oder None, falls leer.
         """
-        return self._queue.get(block, timeout)
+        if not self._queue.empty():
+            return self._queue.get_nowait()
+        return None
+    
+    def join(self) -> None:
+        self._queue.close()
+        self._queue.join_thread()
+        
 
 
 class WriteOnlyQueue:
@@ -151,7 +157,7 @@ class WriteOnlyQueue:
         """
         self._queue: MyQueue = queue
 
-    def put(self, item: QueueMessage, block: bool = False, timeout: Optional[float] = 0) -> None:
+    def put(self, item: QueueMessage, block: bool = False, timeout: float | None = 0) -> bool:
         """
         Fügt ein Element zur Queue hinzu.
 
@@ -160,9 +166,9 @@ class WriteOnlyQueue:
             block (bool): Ob blockierend gewartet werden soll.
             timeout (Optional[float]): Maximale Wartezeit.
         """
-        return self._queue.put(item=item, block=block, timeout=timeout)
+        return self._queue.put(item=item)
 
-    def get(self, block: bool = False, timeout: Optional[float] = 0) -> QueueMessage:
+    def get(self) -> QueueMessage | None:
         """
         Das Lesen aus der Queue ist nicht erlaubt.
 
@@ -183,7 +189,7 @@ class ReadOnlyQueue:
         """
         self._queue: MyQueue = queue
 
-    def get(self, block: bool = False, timeout: Optional[float] = 0) -> QueueMessage:
+    def get(self) -> QueueMessage | None:
         """
         Entnimmt ein Element aus der Queue.
 
@@ -194,9 +200,9 @@ class ReadOnlyQueue:
         Returns:
             QueueMessage: Das entnommene Element.
         """
-        return self._queue.get(block=block, timeout=timeout)
+        return self._queue.get()
 
-    def put(self, item: QueueMessage, block: bool = False, timeout: Optional[float] = 0) -> None:
+    def put(self) -> None:
         """
         Das Schreiben in die Queue ist nicht erlaubt.
 
@@ -360,7 +366,7 @@ class ServerProcess(multiprocessing.Process):
     sio: socketio.Client
     is_connected_error : bool
 
-    def __init__(self, logger: Any, name: str, url: str, events: ServerEvents) -> None:
+    def __init__(self, logger: Any, name: str, url: str, events: ServerEvents, queue_server : MyQueue, queue_ir : MyQueue, queue_main : MyQueue) -> None:
         """
         Initialisiert den ServerProcess.
 
@@ -388,6 +394,10 @@ class ServerProcess(multiprocessing.Process):
         self.logger = logger
         self.url = url
         self.events = events
+        
+        self.queue_server : MyQueue = queue_server
+        self.queue_ir : MyQueue = queue_ir
+        self.queue_main : MyQueue = queue_main
 
         self.in_konfig_modus: bool = False
         self.is_connected: bool = False
@@ -399,6 +409,16 @@ class ServerProcess(multiprocessing.Process):
             reconnection_delay_max=5,
             handle_sigint=False
         )
+        
+        self.dict_send_to_backend = {
+            "ack_config" : lambda data : self.sio.emit(event="ack_config", data = data, callback = lambda : self.logger.warning("ack_config")),
+            "ack_tempreture" : lambda data : self.sio.emit(event="ack_tempreture", data = data, callback = lambda : self.logger.warning("ack_tempreture")),
+            "timeout_stop_record" : lambda data : self.sio.emit(event="timeout_stop_record", data = data, callback = lambda : self.logger.warning("timeout_stop_record")),
+            "send_live_tempreture" : lambda data : self.sio.emit(event="send_live_tempreture", data = data, callback = lambda : self.logger.warning("send_live_tempreture")),
+            "ack_call_live_tempreture" : lambda data : self.sio.emit(event="ack_call_live_tempreture", data = data, callback = lambda : self.logger.warning("ack_call_live_tempreture")),
+            "ack_send_live_tempreture" : lambda data : self.sio.emit(event="ack_send_live_tempreture", data = data, callback = lambda : self.logger.warning("ack_send_live_tempreture")),
+        }
+        
         @self.sio.event
         def connect() -> None:
             self.is_connected = True
@@ -422,29 +442,44 @@ class ServerProcess(multiprocessing.Process):
                 self.is_connected_error = True
 
         @self.sio.event
-        def message(data: Optional[Any] = None) -> None:
+        def reset_alarm() -> None:
+            self.logger.warning("reset alarm")
+            
+        @self.sio.event
+        def reset_error() -> None:
+            self.logger.warning("reset alarm")
+            
+        @self.sio.event
+        def set_config() -> None:
+            self.logger.warning("set config")
+
+        @self.sio.event
+        def set_tempreture(data) -> None:
+            self.logger.warning(f"set tempreture {data}")
+            
+        @self.sio.event
+        def manual_start_record() -> None:
+            self.logger.warning("manual start record")
+
+        @self.sio.event
+        def manual_stop_record() -> None:
+            self.logger.warning("manual stop record")
+
+        @self.sio.event
+        def manual_call_record() -> None:
+            self.logger.warning("manual call record")
+            
+        @self.sio.event
+        def call_live_tempreture() ->None:
+            self.logger.warning("call live tempreture")
+            
+        @self.sio.event
+        def call_history_tempreture() -> None:
+            self.logger.warning("call history tempreture")
+            
+        @self.sio.event
+        def message(data) -> None:
             self.events.message.set()
-            self.logger.warning(f"server_message: {data}")
-
-        @self.sio.event
-        def alarm(data: Optional[Any] = None) -> None:
-            self.events.alarm.set()
-            self.logger.warning(f"alarm: {data}")
-
-        @self.sio.event
-        def on_konfig_start() -> None:
-            self.in_konfig_modus = True
-            self.logger.warning("konfig_start")
-
-        @self.sio.event
-        def on_konfig_ende() -> None:
-            self.in_konfig_modus = False
-            self.logger.warning("konfig_ende")
-
-        @self.sio.event
-        def on_test_status() -> None:
-            self.logger.warning("set test_status")
-        
 
     def shutdown(self):
         """
@@ -473,12 +508,18 @@ class ServerProcess(multiprocessing.Process):
         Callback-Funktion für Server-Bestätigungen.
         """
         self.logger.debug("Server ack")
-    
+
+    def send_to_backend(self, msg : QueueMessage):
+        if msg.command in self.dict_send_to_backend:
+            self.logger.debug("Send ack_config to backend")
+            self.sio.emit(event="ack_config", data = "Hallo")
+
+
     def run(self) -> None:
         """
         Führt die Hauptlogik des Server-Prozesses aus.
         """
-        self.logger.debug("ServerProcess gestartet")
+        self.logger.debug("ServerProcess run gestartet")
 
         while not self.events.shutdown.is_set():
             if self.events.message.is_set():
@@ -499,6 +540,11 @@ class ServerProcess(multiprocessing.Process):
                     self.is_connected = self.events.connect.wait(timeout=MAXIMUM_TIMEOUT)
                 except Exception:
                     self.is_connected = False
+            else:
+                msg = self.queue_server.get()
+                if not msg is None:
+                    self.send_to_backend(msg = msg)
+        
             self.events.heartbeat.set()
             time.sleep(0.1)
         

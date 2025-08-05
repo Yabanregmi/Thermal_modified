@@ -132,10 +132,6 @@ export function getApi({ database }: { database: Database }): ApiServers {
     }
   });
 
-  // ioIntern.use((socket,next) => {
-  //   let handshake = socket.handshake;
-  // });
-
   ioIntern.on('connection', intern_register_handlers());
 
   // Gebe HTTP-Server-Instanzen zurück (wird zum Starten des Servers verwendet)

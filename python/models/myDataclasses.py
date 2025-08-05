@@ -1,16 +1,11 @@
 import time
 from dataclasses import dataclass
 
-
 @dataclass
 class QueueMessage:
-    sender: str
-
-    receiver: str
-    command: str
-
-    payload: int
+    command : str = ""
     timestamp: float = time.time()
+    data : str = ""
 
     def __post_init__(self):
 

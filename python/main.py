@@ -1,15 +1,15 @@
 import logging
 import time
 from my_processes import (
+    MyQueue,
     ProcessManager,
     ServerProcess,
 )
 from global_mp_logger import GlobalMPLogger as my_logger
-from my_processes import ServerEvents, MyEvent, MyTimerThread, user_input
+from my_processes import ServerEvents, MyEvent, MyTimerThread, user_input, QueueMessage
 from pathlib import Path
 from config import SERVER_URL
 from my_relais import Relay
-from threading import Thread
 from sys import exit
 
 timer_heartbeat_is_set_expired : bool = False
@@ -58,6 +58,10 @@ def main ():
     event_timer_heartbeat_shutdown : MyEvent = MyEvent()
     event_user_input_shutdown : MyEvent = MyEvent()
     event_user_aborted : MyEvent = MyEvent()
+    
+    queue_server : MyQueue = MyQueue()
+    queue_ir : MyQueue = MyQueue()
+    queue_main : MyQueue = MyQueue()
     # Logger initialisieren
     my_logger.configure(Path("log.txt"), logging.DEBUG)
     my_logger.start()
@@ -65,14 +69,14 @@ def main ():
     logger_main_process = my_logger.get_logger("mainprozess")
     logger_server_process = my_logger.get_logger("serverprozess")
     logger_relais = my_logger.get_logger("relais")
-    logger_timer_heartbeat = my_logger.get_logger("timer_heartbeart")
+    logger_timer_heartbeat = my_logger.get_logger("timer_heartbeat")
     logger_user_input = my_logger.get_logger("user_input")
 
     Relay.init(logger=logger_relais, bus_nr=1)
     Relay.on_1()
 
-    server_process = ServerProcess(logger=logger_server_process, name="Server", url=SERVER_URL, events=events_server)
-    thread_timer_check_heartbeat = MyTimerThread(name="timer_heartbeart",logger=logger_timer_heartbeat,interval_s = 3, function= check_heartbeat, shutdown=event_timer_heartbeat_shutdown)
+    server_process = ServerProcess(logger=logger_server_process, name="Server", url=SERVER_URL, events=events_server, queue_server=queue_server, queue_main=queue_main, queue_ir=queue_ir)
+    thread_timer_check_heartbeat = MyTimerThread(name="timer_heartbeat",logger=logger_timer_heartbeat,interval_s = 3, function= check_heartbeat, shutdown=event_timer_heartbeat_shutdown)
     thread_user_input = user_input(logger = logger_user_input,aborted=event_user_aborted, shutdown = event_user_input_shutdown)
 
     list_of_threads_and_processes = [
@@ -87,6 +91,9 @@ def main ():
             loop_forever = False
         time.sleep(0.2)
 
+    x : QueueMessage = QueueMessage(command="ack_config", timestamp=time.time(), data = "")
+    
+    
     while loop_forever:
         try:
             # Error handling - Server process 
@@ -95,6 +102,9 @@ def main ():
                 events_server.error_from_server_process.clear()
 
             if events_server.server_process_okay.is_set():
+                if not queue_server.put(item=x):
+                    logger_main_process.warning("Server-Queue ist voll. Nachricht konnte nicht gesendet werden.")
+
                 Relay.off_3()
                 events_server.server_process_okay.clear()
 
@@ -110,7 +120,7 @@ def main ():
 
                 thread_timer_check_heartbeat.restart()
 
-            time.sleep(0.1)
+            time.sleep(1)
         except Exception as e:
             logger_main_process.critical(f"Critical process error: {e}", exc_info=True)
             server_process.terminate()
@@ -124,6 +134,9 @@ def main ():
                         if hasattr(i, "shutdown"):
                             i.shutdown()
                         i.join()
+                queue_main.join()
+                queue_server.join()
+                queue_ir.join()
                 logger_main_process.debug("App stop")
                 time.sleep(1)
                 my_logger.stop()
