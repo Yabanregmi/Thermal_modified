@@ -1,18 +1,44 @@
+from dataclasses import dataclass
 import logging
 import time
 from my_processes import (
-    MyQueue,
+    IrEvents,
+    IrProcess,
+    MyTimerThreadStartStop,
+    TimerEvents,
+    UserInputsEvents,
+    UserInput,
     ProcessManager,
     ServerProcess,
+    SystemQueues,
+    ServerEvents,
 )
 from global_mp_logger import GlobalMPLogger as my_logger
-from my_processes import ServerEvents, MyEvent, MyTimerThread, user_input, QueueMessage
 from pathlib import Path
 from config import SERVER_URL
 from my_relais import Relay
 from sys import exit
+from queueTest import QueueTest, QueueTestEvents
 
 timer_heartbeat_is_set_expired : bool = False
+timer_queue_test_is_set_expired : bool = False
+
+@dataclass
+class Errors():
+    internal_server : bool = False
+    heartbeat_server : bool = False
+    heartbeat_ir : bool = False
+    ir: bool = False
+    test_queues : bool = False
+    
+    def is_error(self) -> bool:
+        status : bool = False
+        if self.internal_server or self.heartbeat_server or self.ir or self.test_queues:
+            status = True
+        else:
+            status = False
+        return status
+            
 
 def shutdown_all_processes():
     for name in ProcessManager.processes:
@@ -28,20 +54,119 @@ def check_all_heartbeats() -> list[ServerProcess]:
 
     return failed_processes
 
-def critical_error_loop(logger):
-    """Endlosschleife im kritischen Fehlerfall – nur durch Neustart zu beenden."""
-    logger.critical("Kritischer Fehler: Programm befindet sich in Fehler-Endlosschleife. Neustart erforderlich!")
-    Relay.off_1()
-    while True:
-        time.sleep(10)  # CPU schonen, aber Zustand beibehalten
-
-
 HEARTBEAT_INTERVAL = 3  # Sekunden: Intervall für Heartbeat-Überprüfung
 
-def check_heartbeat():
+def callback_timer_heartbeat():
     global timer_heartbeat_is_set_expired
     timer_heartbeat_is_set_expired = True
     
+def init_logger():
+    try:
+        my_logger.configure(Path("log.txt"), logging.DEBUG)
+        my_logger.start()
+    except Exception as e:
+        raise ValueError("Fehler beim Initialisieren des Loggers") from e
+    
+def init_server_process(queues : SystemQueues ,events: ServerEvents ) -> ServerProcess:
+    try:
+        logger_server = my_logger.get_logger("logger_server_process")
+        server : ServerProcess = ServerProcess(name="server_process", logger=logger_server,  url=SERVER_URL, events=events, queues=queues)
+        return server
+    except Exception as e:
+        raise ValueError("Fehler beim Initialisieren des Server-Prozesses") from e
+    
+def init_ir_process(queues : SystemQueues,events: IrEvents ) -> IrProcess:
+    try:
+        logger_ir = my_logger.get_logger("logger_ir_process")
+        ir : IrProcess = IrProcess(name="ir_process",logger=logger_ir,events=events,queues=queues)
+        return ir
+    except Exception as e:
+        raise ValueError("Fehler beim Initialisieren des Ir-Prozesses") from e
+    
+def init_system_queues() -> SystemQueues:
+    try:
+        logger_main = my_logger.get_logger("logger_queue_main")
+        logger_server = my_logger.get_logger("logger_queue_server")
+        logger_ir = my_logger.get_logger("logger_queue_ir")
+        system_queues : SystemQueues = SystemQueues()
+        system_queues.init(logger_main=logger_main, logger_server = logger_server, logger_ir=logger_ir)
+        return system_queues
+    except Exception as e:
+        raise ValueError("Fehler beim Initialisieren der System Queues") from e
+
+def init_timer_heartbeat(interval_s : int, events : TimerEvents)-> MyTimerThreadStartStop:
+    try:
+        if interval_s < 0:
+            raise ValueError("Parameter-Fehler beim Initialisieren des Timer-Heartbeat")
+        logger = my_logger.get_logger("logger_queue_main")
+        thread_timer_heartbeat = MyTimerThreadStartStop(
+        name="timer_heartbeat",logger=logger,interval_s = interval_s, 
+        function= callback_timer_heartbeat, 
+        events=events)
+        return thread_timer_heartbeat
+    except Exception as e:
+        raise ValueError("Fehler beim Initialisieren des Timer-Heartbeat") from e
+
+def init_user_input(events : UserInputsEvents)-> UserInput:
+    try:
+        logger = my_logger.get_logger("logger_user_input")
+        thread : UserInput = UserInput(name="User_Input", logger = logger, events = events)
+        return thread
+    except Exception as e:
+        raise ValueError("Fehler beim Initialisieren des User Inputs Thread") from e
+
+def init_relais() -> Relay:
+    logger = my_logger.get_logger("logger_relais")
+    try:
+        relay : Relay= Relay(logger=logger, bus_nr=1)
+        return relay
+    except Exception as e:
+        raise ValueError("Fehler beim Initialisieren der Relais") from e
+
+def init_queue_test(queues : SystemQueues, events : QueueTestEvents) -> QueueTest:
+    try:
+        logger_queue_test = my_logger.get_logger("logger_queue_test")
+        logger_queue_test_timer = my_logger.get_logger("logger_queue_test_timer")
+        test = QueueTest(logger=logger_queue_test, loggerTimer=logger_queue_test_timer,queues=queues, events=events)
+        return test
+    except Exception as e:
+        raise ValueError("Fehler beim Initialisieren des Queue-Test") from e
+    
+def start_server_process(server : ServerProcess):
+    try:
+        if server == None:
+            raise ValueError("Server start Fehler, Server ist nicht initialisiert")
+        else:
+            server.start()
+    except Exception as e:
+        raise ValueError("Fehler beim starten des Server Prozesses") from e
+    
+def start_ir_process(ir : IrProcess):
+    try:
+        if ir == None:
+            raise ValueError("Ir start Fehler, Ir ist nicht initialisiert")
+        else:
+            ir.start()
+    except Exception as e:
+        raise ValueError("Fehler beim starten des Ir Prozesses") from e
+
+def start_timer_heartbeat(timer : MyTimerThreadStartStop):
+    try:
+        if timer == None:
+            raise ValueError("Ir start Fehler, Ir ist nicht initialisiert")
+        else:
+            timer.start()
+    except Exception as e:
+        raise ValueError("Fehler beim starten des Timer-Heartbeat") from e
+
+def start_user_input(thread : UserInput):
+    try:
+        if thread == None:
+            raise ValueError("Ir start Fehler, Ir ist nicht initialisiert")
+        else:
+            thread.start()
+    except Exception as e:
+        raise ValueError("Fehler beim starten des User-Input") from e
 """
 main.py
 --------
@@ -53,98 +178,151 @@ Startpunkt der Anwendung:
 """
 def main ():
     global timer_heartbeat_is_set_expired
-    loop_forever : bool = True
-    events_server: ServerEvents = ServerEvents()
-    event_timer_heartbeat_shutdown : MyEvent = MyEvent()
-    event_user_input_shutdown : MyEvent = MyEvent()
-    event_user_aborted : MyEvent = MyEvent()
     
-    queue_server : MyQueue = MyQueue()
-    queue_ir : MyQueue = MyQueue()
-    queue_main : MyQueue = MyQueue()
+    loop_forever : bool = False
+    init_error : bool = False
+    errors = None 
+    
+    events_server = None 
+    events_ir  = None 
+    events_timer_heartbeat = None 
+    events_user_input  = None 
+    events_queue_test  = None 
+
     # Logger initialisieren
-    my_logger.configure(Path("log.txt"), logging.DEBUG)
-    my_logger.start()
-
-    logger_main_process = my_logger.get_logger("mainprozess")
-    logger_server_process = my_logger.get_logger("serverprozess")
-    logger_relais = my_logger.get_logger("relais")
-    logger_timer_heartbeat = my_logger.get_logger("timer_heartbeat")
-    logger_user_input = my_logger.get_logger("user_input")
-
-    Relay.init(logger=logger_relais, bus_nr=1)
-    Relay.on_1()
-
-    server_process = ServerProcess(logger=logger_server_process, name="Server", url=SERVER_URL, events=events_server, queue_server=queue_server, queue_main=queue_main, queue_ir=queue_ir)
-    thread_timer_check_heartbeat = MyTimerThread(name="timer_heartbeat",logger=logger_timer_heartbeat,interval_s = 3, function= check_heartbeat, shutdown=event_timer_heartbeat_shutdown)
-    thread_user_input = user_input(logger = logger_user_input,aborted=event_user_aborted, shutdown = event_user_input_shutdown)
-
-    list_of_threads_and_processes = [
-        server_process, 
-        thread_timer_check_heartbeat, 
-        thread_user_input]
-
-    for i in list_of_threads_and_processes:
-        if hasattr(i, "start"):
-            i.start()
-        else:
-            loop_forever = False
-        time.sleep(0.2)
-
-    x : QueueMessage = QueueMessage(command="ack_config", timestamp=time.time(), data = "")
+    system_queues = None 
+    server_process = None 
+    ir_process = None 
+    thread_timer_heartbeat = None
+    thread_user_input = None
+    queue_test = None
+    relays = None
     
-    
-    while loop_forever:
+    logger_main = None
+    try:
+        init_logger()
+        logger_main = my_logger.get_logger("logger_main_process")
+    except Exception:
+        init_error = True
+        
+    if not init_error and not logger_main == None:
         try:
-            # Error handling - Server process 
-            if events_server.error_from_server_process.is_set():
-                Relay.on_3()
-                events_server.error_from_server_process.clear()
+            errors = Errors()
+            events_server = ServerEvents()
+            events_ir = IrEvents()
+            events_timer_heartbeat = TimerEvents()
+            events_user_input = UserInputsEvents()
+            events_queue_test = QueueTestEvents()
+        
+            system_queues = init_system_queues()
+            server_process = init_server_process(queues=system_queues,events=events_server )
+            ir_process = init_ir_process(events = events_ir, queues=system_queues)
+            thread_timer_heartbeat = init_timer_heartbeat(3, events=events_timer_heartbeat)
+            thread_user_input = init_user_input(events=events_user_input)
+            
+            relays = init_relais()
+            queue_test = init_queue_test(queues=system_queues,events = events_queue_test)
+        
+            start_server_process(server=server_process)
+            start_ir_process(ir=ir_process)
+            start_timer_heartbeat(timer=thread_timer_heartbeat)
+            start_user_input(thread=thread_user_input)
+            loop_forever = True
+            
+            while loop_forever:
+                    try:
+                        queue_test.run()
+                        if events_queue_test.test_done.wait(timeout=0):
+                            if queue_test.is_error():
+                                errors.test_queues = True
+                                logger_main.critical(f"{__name__} QueueTest Fehlgeschlagen")
+                                
+                        # Error handling - Server process 
+                        if events_server.error_from_server_process.is_set():
+                            errors.internal_server = True
+                            events_server.error_from_server_process.clear()
+                        elif events_server.server_process_okay.is_set():
+                            errors.internal_server = False
+                            events_server.server_process_okay.clear()
 
-            if events_server.server_process_okay.is_set():
-                if not queue_server.put(item=x):
-                    logger_main_process.warning("Server-Queue ist voll. Nachricht konnte nicht gesendet werden.")
+                        # Heartbeat handling - Server process
+                        if timer_heartbeat_is_set_expired:
+                            timer_heartbeat_is_set_expired = False
 
-                Relay.off_3()
-                events_server.server_process_okay.clear()
+                            if not events_server.heartbeat.is_set():
+                                errors.heartbeat_server = True
+                                logger_main.critical(f"Server heartbeat failed")
+                            
+                            if not events_ir.heartbeat.is_set():
+                                errors.heartbeat_ir = True
+                                logger_main.critical(f"Ir heartbeat failed")
+                            
+                            if events_server.heartbeat.is_set() and events_ir.heartbeat.is_set():
+                                events_server.heartbeat.clear()
+                                events_ir.heartbeat.clear()
+                                errors.heartbeat_server = False
+                                errors.heartbeat_ir = False
+                            thread_timer_heartbeat.restart()
+                    except Exception as e:
+                        logger_main.critical(f"Critical process error: {e}", exc_info=True)
+                        server_process.terminate()
 
-            # Heartbeat handling - Server process
-            if timer_heartbeat_is_set_expired:
-                timer_heartbeat_is_set_expired = False
-
-                if not events_server.heartbeat.is_set():
-                    logger_main_process.critical(f"Server heartbeat failed")
-                    Relay.off_1()
-                else:
-                    events_server.heartbeat.clear()
-
-                thread_timer_check_heartbeat.restart()
-
-            time.sleep(1)
+                    finally:
+                        if errors.is_error():
+                            relays.off_1()
+                        else:
+                            relays.on_1()
+                            
+                        if events_user_input.aborted.is_set():
+                            events_user_input.aborted.clear()
+                            loop_forever = False
+                        time.sleep(1)
         except Exception as e:
-            logger_main_process.critical(f"Critical process error: {e}", exc_info=True)
-            server_process.terminate()
-            # Keine break-Anweisung mehr, sondern in Fehler-Endlosschleife springen:
-            critical_error_loop(logger_main_process)
-        finally:
-            if event_user_aborted.is_set():
-                Relay.off_1()
-                for i in list_of_threads_and_processes:
-                    if hasattr(i, "is_alive") and i.is_alive():
-                        if hasattr(i, "shutdown"):
-                            i.shutdown()
-                        i.join()
-                queue_main.join()
-                queue_server.join()
-                queue_ir.join()
-                logger_main_process.debug("App stop")
-                time.sleep(1)
-                my_logger.stop()
-                loop_forever = False
+            logger_main.error(f"Fehler bei der Prozessinitialisierung: {e}", exc_info=True)
+            
+    if not relays == None:
+        relays.off_1()
 
+    if not queue_test == None:
+        queue_test.shutdown()
+        queue_test.join()
+
+    if not system_queues == None: 
+        system_queues.main.shutdown()       
+        system_queues.main.join()
+        system_queues.server.shutdown()  
+        system_queues.server.join()
+        system_queues.ir.shutdown()  
+        system_queues.ir.join()
+
+    if not thread_user_input == None: 
+        thread_user_input.shutdown()
+        thread_user_input.join()
+    
+    if not thread_timer_heartbeat == None: 
+        thread_timer_heartbeat.shutdown()
+        thread_timer_heartbeat.join()
+    
+    if not ir_process == None:
+        ir_process.shutdown()
+        ir_process.join()
+        
+    if not server_process == None:
+        server_process.shutdown()
+        server_process.join()   
+
+    if not logger_main == None:
+        logger_main.debug("App stop")
+    time.sleep(1)
+    my_logger.stop()
+    time.sleep(1)
+                
 if __name__ == "__main__":
     try:
         main()
         exit(0)
     except Exception as e:
         exit(1)
+        
+
+    

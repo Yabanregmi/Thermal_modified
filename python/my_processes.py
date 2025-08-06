@@ -30,7 +30,7 @@ Hinweis:
 Dieses Modul ist für den Einsatz in Systemen mit hohen Anforderungen an Parallelität, 
 Zuverlässigkeit und Wartbarkeit konzipiert.
 """
-from ast import Pass
+from queue import Empty, Full
 from typing import Dict, Any, Callable
 import multiprocessing
 from threading import Thread
@@ -40,7 +40,9 @@ from multiprocessing import Queue, Event
 from xmlrpc.client import boolean
 import socketio
 from models.myDataclasses import QueueMessage
-
+import messages
+import time
+from logging import Logger
 MAXIMUM_TIMEOUT: int = 10
 QUEUE_MAXSIZE: int = 128
 
@@ -64,20 +66,35 @@ class MyEvent:
         Returns:
             bool: True, wenn das Event gesetzt ist, sonst False.
         """
-        return self._event.is_set()
+        status : bool = True
+        try:
+            status = self._event.is_set()
+        except Exception as e:
+            status = False
+        return status
 
-    def set(self) -> None:
+    def set(self) -> bool:
         """
         Setzt das Event.
         """
-        self._event.set()
-
-    def clear(self) -> None:
+        status : bool = True
+        try:
+            self._event.set()
+        except Exception as e:
+            status = False
+        return status
+        
+    def clear(self) -> bool:
         """
         Löscht das Event (setzt es zurück).
         """
-        self._event.clear()
-
+        status : bool = True
+        try:
+            self._event.clear()
+        except Exception as e:
+            status = False
+        return status
+        
     def wait(self, timeout: int | None = None) -> bool:
         """
         Wartet, bis das Event gesetzt wird oder das Timeout abläuft.
@@ -88,11 +105,18 @@ class MyEvent:
         Returns:
             bool: True, wenn das Event gesetzt wurde, sonst False.
         """
-        return self._event.wait(timeout = 0)
-
+        status : bool = False
+        try:
+            _timeout = timeout
+            if not _timeout == None: 
+                _timeout = float(_timeout)
+            status = self._event.wait(timeout = _timeout)
+        except Exception as e:
+            status = False
+        return status
 
 @dataclass
-class ServerEvents:
+class ServerEvents():
     """
     Sammlung von Events zur Steuerung und Überwachung des Server-Prozesses.
     """
@@ -105,17 +129,48 @@ class ServerEvents:
     error_on_connection: MyEvent = field(default_factory=MyEvent)
     error_from_server_process: MyEvent = field(default_factory=MyEvent)
     server_process_okay: MyEvent = field(default_factory=MyEvent)
+
+@dataclass
+class IrEvents():
+    """
+    Sammlung von Events zur Steuerung und Überwachung des Server-Prozesses.
+    """
+    shutdown: MyEvent = field(default_factory=MyEvent)
+    heartbeat: MyEvent = field(default_factory=MyEvent)
+    error: MyEvent = field(default_factory=MyEvent)
+    okay: MyEvent = field(default_factory=MyEvent)
+    
+@dataclass
+class TimerEvents():
+    """
+    Sammlung von Events zur Steuerung und Überwachung des Server-Prozesses.
+    """
+    shutdown: MyEvent = field(default_factory=MyEvent)
+    restart: MyEvent = field(default_factory=MyEvent)
+
+@dataclass
+class UserInputsEvents():
+    """
+    Sammlung von Events zur Steuerung und Überwachung des Server-Prozesses.
+    """
+    aborted: MyEvent = field(default_factory=MyEvent)
+    shutdown: MyEvent = field(default_factory=MyEvent)
     
 class MyQueue:
     """
     Wrapper für multiprocessing.Queue mit fester Maximalgröße.
     """
-
-    def __init__(self) -> None:
+    
+    def __init__(self, name : str, logger) -> None:
         """
         Initialisiert die interne Queue mit fester Maximalgröße.
         """
-        self._queue: Queue = Queue(maxsize=QUEUE_MAXSIZE)
+        try:
+            self.name = name
+            self._queue: Queue = Queue(maxsize=QUEUE_MAXSIZE)
+            self.logger = logger
+        except Exception as e:
+            self.logger.critical(f"Error - {self.__class__.__name__} - {self.name} unkown error")
 
     def put(self, item: QueueMessage) -> bool:
         """
@@ -125,10 +180,17 @@ class MyQueue:
         Returns:
             bool: True, wenn das Element hinzugefügt wurde, sonst False.
         """
-        if not self._queue.full():
+        status : bool = False
+        try:
             self._queue.put_nowait(item)
-            return True
-        return False
+            status =  True
+        except ValueError:
+            self.logger.critical(f"Error - {self.__class__.__name__} - {self.name} is closed")
+        except Full:
+            self.logger.critical(f"Error - {self.__class__.__name__} - {self.name} is full")
+        except Exception as e:
+            self.logger.critical(f"Error - {self.__class__.__name__} - {self.name} unkown error")
+        return status
 
     def get(self) -> QueueMessage | None:
         """
@@ -136,16 +198,32 @@ class MyQueue:
         Returns:
             Optional[QueueMessage]: Das entnommene Element oder None, falls leer.
         """
-        if not self._queue.empty():
-            return self._queue.get_nowait()
-        return None
-    
-    def join(self) -> None:
-        self._queue.close()
-        self._queue.join_thread()
+        msg : QueueMessage | None = None
+        try:
+            msg = self._queue.get_nowait()
+        except ValueError:
+            self.logger.critical(f"Error - {self.__class__.__name__} - {self.name} is closed")
+        except Empty:
+            pass
+            #self.logger.critical(f"Error - {self.__class__.__name__} - {self.name} is empty")
+        except Exception as e:
+            self.logger.critical(f"Error - {self.__class__.__name__} - {self.name} unkown error")
+        return msg
+
+    def shutdown(self) -> None:
+        self.logger.debug(f"{self.__class__.__name__} - {self.name} shutdown")
+        try:
+            self._queue.close()
+        except Exception as e:
+            self.logger.critical(f"Error - {self.__class__.__name__} - {self.name} unkown error")
         
-
-
+    def join(self) -> None:
+        self.logger.debug(f"{self.__class__.__name__} - {self.name} join")
+        try:
+            self._queue.join_thread()
+        except Exception as e:
+            self.logger.critical(f"Error - {self.__class__.__name__} - {self.name} unkown error")
+        
 class WriteOnlyQueue:
     """
     Queue-Wrapper, der ausschließlich das Schreiben (put) erlaubt.
@@ -210,8 +288,19 @@ class ReadOnlyQueue:
             RuntimeError: Diese Queue ist nur zum Lesen.
         """
         raise RuntimeError("This queue is read-only!")
+    
+class SystemQueues:
+    @classmethod
+    def init(cls, logger_main, logger_server, logger_ir):
+        cls.logger_main =logger_main
+        cls.logger_server = logger_server
+        cls.logger_ir = logger_ir
 
-class MyTimerThread(Thread):
+        cls.main = MyQueue(name = "main", logger=cls.logger_main)
+        cls.server = MyQueue( name = "server", logger=cls.logger_server)
+        cls.ir = MyQueue(name = "ir", logger=cls.logger_ir)
+    
+class MyTimerThreadStartStop(Thread):
     """
     Timer-Thread, der nach Ablauf eines Intervalls eine Funktion ausführt.
 
@@ -222,8 +311,8 @@ class MyTimerThread(Thread):
         t.restart()  # Startet den Timer erneut
     """
 
-    def __init__(self, name: str, logger: Any, interval_s: int, function: Callable, 
-                    shutdown : MyEvent):
+    def __init__(self, name: str, logger: Logger, interval_s: int, function: Callable,
+                    events : TimerEvents):
         """
         Initialisiert den Timer-Thread.
 
@@ -243,84 +332,62 @@ class MyTimerThread(Thread):
             raise ValueError("Keine Funktion übergeben")
         if not (3 <= len(name) <= 50):
             raise ValueError("Name muss zwischen 3 und 50 Zeichen lang sein.")
-
+        if interval_s < 0:
+            interval_s = 0
+            raise ValueError("Timer Intervall < 0")
+         
         self._name = name
         self._interval : int = interval_s
         self._function : Callable = function
         self._expired : MyEvent = MyEvent()
         self._start_again : MyEvent= MyEvent()
         self._is_aborted :bool = False
-        self._max_timeout :int= 10
+        self._max_timeout :int= 256
         self._logger = logger
         self._is_error :bool = False
-        self.event_shutdown : MyEvent = shutdown
-
+        self.events : TimerEvents = events
+        self.wait_on_restart : bool = False
         super().__init__(name=name)
-
-
-
-    def abort(self):
-        """
-        Stoppt den Timer, falls er noch nicht ausgelöst wurde.
-        """
-        if not self._is_error:
-            self._is_aborted = True
-            self._expired.set()
-            
+        self._logger.debug(f"{self.__class__.__name__} - {self.name} init")
+        
     def restart(self):
         """
         Startet den Timer erneut.
         """
-        if not self._is_error:
-            self._start_again.set()
-
+        if not self.events.restart.is_set():
+            self.events.restart.set()
+            
     def shutdown(self):
         """
         Setzt das Shutdown-Event, um den Thread zu beenden.
         """
-        if not self.event_shutdown.is_set():
-            self.event_shutdown.set()
+        if not self.events.shutdown.is_set():
+            self.events.shutdown.set()
+            self._logger.debug(f"{self.__class__.__name__} - {self.name} called shutdown")
 
     def run(self):
         """
         Startet den Timer-Thread und ruft nach Ablauf die Funktion auf.
         """
         self._logger.debug(f"Timer {self.name} run")
-        self._start_again.set() # Skip first loop query
-
-        while self._start_again.wait(self._max_timeout) and not self._is_error and not self.event_shutdown.is_set():
+        
+        while not self.events.shutdown.is_set():
             try:
-                 # User definied waiting 
-                self._expired.wait(self._interval)
-                if not self._is_aborted:
-                    self._function()
-                self._is_aborted = False
-
+                time.sleep(self._interval)
+                self._function()
+                self.events.restart.wait(timeout=None)
             except Exception as e:
-                self._logger.critical(f"Timer {self.name} unkown error")
-                self._is_error = True
-        
-        self.reset()
-
-        if self.event_shutdown.is_set():
-            self._logger.debug(f"Timer {self._name} shutdown successfully")
-        
-    def reset(self) -> None:
-        """
-        Setzt den Timer-Zustand zurück.
-        """
-        self._is_aborted = False
-        if self._expired.is_set():
-            self._expired.clear()
-
-        if self._start_again.is_set():
-            self._start_again.clear()
+                self._logger.critical(f"{self.__class__.__name__} - {self.name} unkown error")
+                
+        self.events.restart.clear()
+        self.events.shutdown.clear()   
+        self._logger.debug(f"{self.__class__.__name__} - {self.name} shutdown")
     
-class user_input(Thread):
+class UserInput(Thread):
     """
     Thread zur Verarbeitung von Benutzereingaben, speziell zum Abbruch oder Herunterfahren.
     """
-    def __init__(self, logger : Any, aborted : MyEvent, shutdown : MyEvent):
+    def __init__(self, name : str, logger : Logger, events : UserInputsEvents):
         """
         Initialisiert den user_input-Thread.
 
@@ -330,35 +397,41 @@ class user_input(Thread):
             shutdown (MyEvent): Event für Shutdown.
         """
         super().__init__(name="user_input")
+        self.name = name
         self.logger = logger
-        self.event_user_aborted : MyEvent = aborted
-        self.event_shutdown : MyEvent = shutdown
+        self.events : UserInputsEvents = events
+        self.logger.debug(f"{self.__class__.__name__} - {self.name} init")
 
     def shutdown(self):
         """
         Setzt das Shutdown-Event, um den Thread zu beenden.
         """
-        if not self.event_shutdown.is_set():
-            self.event_shutdown.set()
+        if not self.events.shutdown.is_set():
+            self.events.shutdown.set()
+            self.logger.debug(f"{self.__class__.__name__} - {self.name} called shutdown")
 
     def run(self):
         """
         Wartet auf Benutzereingabe ('q'), um das Abbruch-Event zu setzen.
         """
-        while not self.event_shutdown.is_set():
+        while not self.events.shutdown.is_set():
             if input() == 'q' :
-                self.event_user_aborted.set()
-                self.logger.debug(f"User q pressed")
+                self.events.aborted.set()
+                self.logger.debug(f"{self.__class__.__name__} - {self.name} user pressed q")
             time.sleep(0.1)
         
-        if self.event_shutdown.is_set():
-            self.logger.debug(f"User input shutdown successfully")
+        if self.events.shutdown.is_set():
+            self.events.shutdown.clear()
+        
+        if self.events.aborted.is_set():
+            self.events.aborted.clear()
+        self.logger.debug(f"{self.__class__.__name__} - {self.name} shutdown")
 
 class ServerProcess(multiprocessing.Process):
     """
     Basisklasse für alle Prozesse im System, die mit dem Server kommunizieren.
     """
-    logger: Any
+    logger: Logger
     url: str
     events: ServerEvents
     in_konfig_modus: bool
@@ -366,7 +439,7 @@ class ServerProcess(multiprocessing.Process):
     sio: socketio.Client
     is_connected_error : bool
 
-    def __init__(self, logger: Any, name: str, url: str, events: ServerEvents, queue_server : MyQueue, queue_ir : MyQueue, queue_main : MyQueue) -> None:
+    def __init__(self, name: str, logger: Logger, url: str, events: ServerEvents, queues : SystemQueues) -> None:
         """
         Initialisiert den ServerProcess.
 
@@ -395,14 +468,12 @@ class ServerProcess(multiprocessing.Process):
         self.url = url
         self.events = events
         
-        self.queue_server : MyQueue = queue_server
-        self.queue_ir : MyQueue = queue_ir
-        self.queue_main : MyQueue = queue_main
+        self.queues : SystemQueues = queues
 
         self.in_konfig_modus: bool = False
         self.is_connected: bool = False
         self.is_connected_error : bool = False
-
+        
         self.sio: socketio.Client = socketio.Client(
             reconnection=False,
             reconnection_attempts=0,
@@ -480,6 +551,8 @@ class ServerProcess(multiprocessing.Process):
         @self.sio.event
         def message(data) -> None:
             self.events.message.set()
+            
+        self.logger.debug(f"{self.__class__.__name__} - {self.name} init")
 
     def shutdown(self):
         """
@@ -487,6 +560,7 @@ class ServerProcess(multiprocessing.Process):
         """
         if not self.events.shutdown.is_set():
             self.events.shutdown.set()
+            self.logger.debug(f"{self.__class__.__name__} - {self.name} called shutdown")
 
     def reset(self) -> bool:
         """
@@ -501,6 +575,7 @@ class ServerProcess(multiprocessing.Process):
             self.sio.disconnect()
             self.is_connected = False
             self.state = self.events.disconnect.wait(timeout=MAXIMUM_TIMEOUT)
+        self.logger.debug(f"{self.__class__.__name__} - {self.name} reset")
         return self.state
     
     def server_ack(self) -> None:
@@ -514,13 +589,11 @@ class ServerProcess(multiprocessing.Process):
             self.logger.debug("Send ack_config to backend")
             self.sio.emit(event="ack_config", data = "Hallo")
 
-
     def run(self) -> None:
         """
         Führt die Hauptlogik des Server-Prozesses aus.
         """
-        self.logger.debug("ServerProcess run gestartet")
-
+        self.logger.debug(f"{self.__class__.__name__} - {self.name} running")
         while not self.events.shutdown.is_set():
             if self.events.message.is_set():
                 self.events.message.clear()
@@ -540,19 +613,109 @@ class ServerProcess(multiprocessing.Process):
                     self.is_connected = self.events.connect.wait(timeout=MAXIMUM_TIMEOUT)
                 except Exception:
                     self.is_connected = False
-            else:
-                msg = self.queue_server.get()
-                if not msg is None:
-                    self.send_to_backend(msg = msg)
+        
+            msg_in = self.queues.server.get()
+            
+            if not self.queue_test_send_ack(msg=msg_in):
+                self.events.error_from_server_process.set()
+
+            if not msg_in is None:
+                if self.is_connected:
+                    self.send_to_backend(msg = msg_in)
         
             self.events.heartbeat.set()
             time.sleep(0.1)
         
         if not self.reset():
-            self.logger.debug("ServerProcess shutdown error")
+            self.logger.debug(f"{self.__class__.__name__} - {self.name} shutdown error")
         else:
-            self.logger.debug("ServerProcess shutdown successfully")
+            self.logger.debug(f"{self.__class__.__name__} - {self.name} shutdown")
+        
+        if self.events.shutdown.is_set():
+            self.events.shutdown.clear()
         time.sleep(1)
+        
+    def queue_test_send_ack(self, msg : QueueMessage | None) -> bool:
+        status : bool = False
+        try:
+            if not msg is None:
+                if msg.command == messages.MSG_QUEUE_TEST_SERVER_REQ:
+                    queue_test_msg_ack : QueueMessage = QueueMessage(
+                        command=messages.MSG_QUEUE_TEST_SERVER_ACK, timestamp=time.time(), data = messages.MSG_QUEUE_TEST_SERVER_ACK)
+                    if not self.queues.main.put(item=queue_test_msg_ack):
+                        status = False
+                    else:
+                        status = True
+        except Exception:
+            status = False
+        return status
+
+class IrProcess(multiprocessing.Process):
+    """
+    Basisklasse für alle Prozesse im System, die mit dem Server kommunizieren.
+    """
+    def __init__(self, name: str, logger: Logger, events: IrEvents, queues : SystemQueues) -> None:
+        """
+        Initialisiert den ServerProcess.
+
+        Args:
+            logger (Any): Logger-Objekt.
+            name (str): Name des Prozesses.
+            url (str): Server-URL.
+            events (ServerEvents): Events zur Steuerung.
+
+        Raises:
+            ValueError: Bei ungültigen Parametern.
+        """
+        if logger is None:
+            raise ValueError("Logger darf nicht None sein.")
+
+        # Name prüfen: String, min. 3, max. 50 Zeichen
+        if not (3 <= len(name) <= 50):
+            raise ValueError("Name muss zwischen 3 und 50 Zeichen lang sein.")
+        super().__init__(name=name)
+        self.logger = logger
+        self.events = events
+        
+        self.queues : SystemQueues = queues
+        self.logger.debug(f"{self.__class__.__name__} - {self.name} init")
+
+    def shutdown(self):
+        """
+        Setzt das Shutdown-Event, um den Prozess zu beenden.
+        """
+        if not self.events.shutdown.is_set():
+            self.events.shutdown.set()
+            self.logger.debug(f"{self.__class__.__name__} - {self.name} called shutdown")
+   
+    def run(self) -> None:
+        self.logger.debug(f"{self.__class__.__name__} - {self.name} running")
+        while not self.events.shutdown.is_set():
+            msg_in = self.queues.server.get()
+
+            if not self.queue_test_send_ack(msg=msg_in):
+                self.events.error.set()
+            self.events.heartbeat.set()
+            time.sleep(0.1)
+             
+        if self.events.shutdown.is_set():
+            self.events.shutdown.clear()
+        time.sleep(1)
+        
+    def queue_test_send_ack(self, msg : QueueMessage | None) -> bool:
+        status : bool = False
+        try:
+            if not msg is None:
+                if msg.command == messages.MSG_QUEUE_TEST_SERVER_REQ:
+                    queue_test_msg_ack : QueueMessage = QueueMessage(
+                        command=messages.MSG_QUEUE_TEST_SERVER_ACK, timestamp=time.time(), data = messages.MSG_QUEUE_TEST_SERVER_ACK)
+                    if not self.queues.main.put(item=queue_test_msg_ack):
+                        status = False
+                    else:
+                        status = True
+        except Exception:
+            status = False
+        return status
 
 class ProcessManager:
     """
