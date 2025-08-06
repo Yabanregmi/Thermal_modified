@@ -236,6 +236,8 @@ def main ():
                             if queue_test.is_error():
                                 errors.test_queues = True
                                 logger_main.critical(f"{__name__} QueueTest Fehlgeschlagen")
+                            else:
+                                logger_main.debug("QueueTest done")
                                 
                         # Error handling - Server process 
                         if events_server.error_from_server_process.is_set():

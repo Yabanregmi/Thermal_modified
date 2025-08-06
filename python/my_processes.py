@@ -111,6 +111,9 @@ class MyEvent:
             if not _timeout == None: 
                 _timeout = float(_timeout)
             status = self._event.wait(timeout = _timeout)
+            
+            if status:
+                self._event.clear()
         except Exception as e:
             status = False
         return status
@@ -691,8 +694,7 @@ class IrProcess(multiprocessing.Process):
     def run(self) -> None:
         self.logger.debug(f"{self.__class__.__name__} - {self.name} running")
         while not self.events.shutdown.is_set():
-            msg_in = self.queues.server.get()
-
+            msg_in = self.queues.ir.get()
             if not self.queue_test_send_ack(msg=msg_in):
                 self.events.error.set()
             self.events.heartbeat.set()
@@ -706,9 +708,9 @@ class IrProcess(multiprocessing.Process):
         status : bool = False
         try:
             if not msg is None:
-                if msg.command == messages.MSG_QUEUE_TEST_SERVER_REQ:
+                if msg.command == messages.MSG_QUEUE_TEST_IR_REQ:
                     queue_test_msg_ack : QueueMessage = QueueMessage(
-                        command=messages.MSG_QUEUE_TEST_SERVER_ACK, timestamp=time.time(), data = messages.MSG_QUEUE_TEST_SERVER_ACK)
+                        command=messages.MSG_QUEUE_TEST_IR_ACK, timestamp=time.time(), data = messages.MSG_QUEUE_TEST_IR_ACK)
                     if not self.queues.main.put(item=queue_test_msg_ack):
                         status = False
                     else:
