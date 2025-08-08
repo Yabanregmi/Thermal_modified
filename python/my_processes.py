@@ -425,7 +425,7 @@ class UserInput(Thread):
         if user_input == 'q':
             self.events.aborted.set()
         else:
-            self.logger.debug(f"{self.__class__.__name__} - {self.name} Bitte q abbruch durchgeführt, bitte q beim nächsten al verwenden")
+            self.logger.debug(f"{self.__class__.__name__} - {self.name} Bitte q abbruch durchgeführt, bitte q beim nächsten mal verwenden")
         self.logger.debug(f"{self.__class__.__name__} - {self.name} user pressed {user_input}")
         time.sleep(0.1)
             
