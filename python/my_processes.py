@@ -53,11 +53,12 @@ class MyEvent:
     einheitlichen Umgang mit Events zu ermöglichen.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, name:str) -> None:
         """
         Initialisiert das interne Event-Objekt.
         """
         self._event = multiprocessing.Event()
+        self.name = name
 
     def is_set(self) -> bool:
         """
@@ -95,7 +96,7 @@ class MyEvent:
             status = False
         return status
         
-    def wait(self, timeout: int | None = None) -> bool:
+    def wait(self, timeout: int | None) -> bool:
         """
         Wartet, bis das Event gesetzt wird oder das Timeout abläuft.
 
@@ -105,6 +106,8 @@ class MyEvent:
         Returns:
             bool: True, wenn das Event gesetzt wurde, sonst False.
         """
+        if timeout == None:
+            print(f"{__class__} :{self.name} Event wait unendlich")
         status : bool = False
         try:
             _timeout = timeout
@@ -118,46 +121,50 @@ class MyEvent:
             status = False
         return status
 
-@dataclass
 class ServerEvents():
     """
     Sammlung von Events zur Steuerung und Überwachung des Server-Prozesses.
     """
-    shutdown: MyEvent = field(default_factory=MyEvent)
-    heartbeat: MyEvent = field(default_factory=MyEvent)
-    connect: MyEvent = field(default_factory=MyEvent)
-    disconnect: MyEvent = field(default_factory=MyEvent)
-    message: MyEvent = field(default_factory=MyEvent)
-    alarm: MyEvent = field(default_factory=MyEvent)
-    error_on_connection: MyEvent = field(default_factory=MyEvent)
-    error_from_server_process: MyEvent = field(default_factory=MyEvent)
-    server_process_okay: MyEvent = field(default_factory=MyEvent)
+    def __init__(self, name:str):
+        self.name : str = name
+        self.shutdown: MyEvent = MyEvent(name = f"{name} shutdown")
+        self.heartbeat: MyEvent = MyEvent(name = f"{name} heartbeat")
+        self.connect: MyEvent = MyEvent(name = f"{name} connect")
+        self.disconnect: MyEvent = MyEvent(name = f"{name} disconnect")
+        self.message: MyEvent = MyEvent(name = f"{name} message")
+        self.alarm: MyEvent = MyEvent(name = f"{name} alarm")
+        self.error_on_connection: MyEvent = MyEvent(name = f"{name} error_on_connection")
+        self.error_from_server_process: MyEvent = MyEvent(name = f"{name} error_from_process")
+        self.server_process_okay: MyEvent = MyEvent(name = f"{name} process_okay")
 
-@dataclass
 class IrEvents():
     """
     Sammlung von Events zur Steuerung und Überwachung des Server-Prozesses.
     """
-    shutdown: MyEvent = field(default_factory=MyEvent)
-    heartbeat: MyEvent = field(default_factory=MyEvent)
-    error: MyEvent = field(default_factory=MyEvent)
-    okay: MyEvent = field(default_factory=MyEvent)
+    def __init__(self, name:str):
+        self.name : str = name
+        self.shutdown: MyEvent = MyEvent(name = f"{name} shutdown")
+        self.heartbeat: MyEvent = MyEvent(name = f"{name} heartbeat")
+        self.error: MyEvent = MyEvent(name = f"{name} error")
+        self.okay: MyEvent =  MyEvent(name = f"{name} okay")
     
-@dataclass
 class TimerEvents():
     """
     Sammlung von Events zur Steuerung und Überwachung des Server-Prozesses.
     """
-    shutdown: MyEvent = field(default_factory=MyEvent)
-    restart: MyEvent = field(default_factory=MyEvent)
+    def __init__(self, name:str):
+        self.name : str = name
+        self.shutdown: MyEvent =  MyEvent(name = f"{name} shutdown")
+        self.restart: MyEvent =  MyEvent(name = f"{name} restart")
 
-@dataclass
 class UserInputsEvents():
     """
     Sammlung von Events zur Steuerung und Überwachung des Server-Prozesses.
     """
-    aborted: MyEvent = field(default_factory=MyEvent)
-    shutdown: MyEvent = field(default_factory=MyEvent)
+    def __init__(self, name:str):
+        self.name : str = name
+        self.aborted: MyEvent = MyEvent(name = f"{name} aborted")
+        self.shutdown: MyEvent = MyEvent(name = f"{name} shutdown")
     
 class MyQueue:
     """
@@ -342,16 +349,12 @@ class MyTimerThreadStartStop(Thread):
         self._name = name
         self._interval : int = interval_s
         self._function : Callable = function
-        self._expired : MyEvent = MyEvent()
-        self._start_again : MyEvent= MyEvent()
-        self._is_aborted :bool = False
         self._max_timeout :int= 256
         self._logger = logger
-        self._is_error :bool = False
         self.events : TimerEvents = events
-        self.wait_on_restart : bool = False
         super().__init__(name=name)
         self._logger.debug(f"{self.__class__.__name__} - {self.name} init")
+        self.run_one_time : bool = False
         
     def restart(self):
         """
@@ -373,12 +376,13 @@ class MyTimerThreadStartStop(Thread):
         Startet den Timer-Thread und ruft nach Ablauf die Funktion auf.
         """
         self._logger.debug(f"Timer {self.name} run")
-        
+        self.run_one_time = True
         while not self.events.shutdown.is_set():
             try:
-                time.sleep(self._interval)
-                self._function()
-                self.events.restart.wait(timeout=None)
+                if self.run_one_time or self.events.restart.wait(timeout=0):
+                    self.run_one_time = False
+                    time.sleep(self._interval)
+                    self._function()       
             except Exception as e:
                 self._logger.critical(f"{self.__class__.__name__} - {self.name} unkown error")
                 
@@ -417,12 +421,16 @@ class UserInput(Thread):
         """
         Wartet auf Benutzereingabe ('q'), um das Abbruch-Event zu setzen.
         """
-        while not self.events.shutdown.is_set():
-            if input() == 'q' :
-                self.events.aborted.set()
-                self.logger.debug(f"{self.__class__.__name__} - {self.name} user pressed q")
-            time.sleep(0.1)
-        
+        user_input = input()
+        if user_input == 'q':
+            self.events.aborted.set()
+        else:
+            self.logger.debug(f"{self.__class__.__name__} - {self.name} Bitte q abbruch durchgeführt, bitte q beim nächsten al verwenden")
+        self.logger.debug(f"{self.__class__.__name__} - {self.name} user pressed {user_input}")
+        time.sleep(0.1)
+            
+        self.events.shutdown.wait(timeout=None)
+
         if self.events.shutdown.is_set():
             self.events.shutdown.clear()
         

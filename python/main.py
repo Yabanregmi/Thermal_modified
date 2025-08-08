@@ -208,11 +208,11 @@ def main ():
     if not init_error and not logger_main == None:
         try:
             errors = Errors()
-            events_server = ServerEvents()
-            events_ir = IrEvents()
-            events_timer_heartbeat = TimerEvents()
-            events_user_input = UserInputsEvents()
-            events_queue_test = QueueTestEvents()
+            events_server = ServerEvents(name="Server process")
+            events_ir = IrEvents(name="Ir process")
+            events_timer_heartbeat = TimerEvents(name="Timer heartbeat")
+            events_user_input = UserInputsEvents(name="User Input")
+            events_queue_test = QueueTestEvents(name="Queue test")
         
             system_queues = init_system_queues()
             server_process = init_server_process(queues=system_queues,events=events_server )
@@ -284,35 +284,39 @@ def main ():
             
     if not relays == None:
         relays.off_1()
-
+        
     if not queue_test == None:
         queue_test.shutdown()
         queue_test.join()
 
-    if not system_queues == None: 
-        system_queues.main.shutdown()       
-        system_queues.main.join()
-        system_queues.server.shutdown()  
-        system_queues.server.join()
-        system_queues.ir.shutdown()  
-        system_queues.ir.join()
-
-    if not thread_user_input == None: 
-        thread_user_input.shutdown()
-        thread_user_input.join()
-    
-    if not thread_timer_heartbeat == None: 
-        thread_timer_heartbeat.shutdown()
-        thread_timer_heartbeat.join()
-    
     if not ir_process == None:
         ir_process.shutdown()
         ir_process.join()
         
     if not server_process == None:
-        server_process.shutdown()
-        server_process.join()   
+        server_process.shutdown()        
+        server_process.join()
+        
 
+
+    if not system_queues == None: 
+        system_queues.main.shutdown()       
+        system_queues.server.shutdown()  
+        system_queues.ir.shutdown()  
+        system_queues.main.join()
+        system_queues.server.join()
+        system_queues.ir.join()
+
+
+    
+    if not thread_timer_heartbeat == None: 
+        thread_timer_heartbeat.shutdown()
+        thread_timer_heartbeat.join()
+              
+    if not thread_user_input == None: 
+        thread_user_input.shutdown()
+        thread_user_input.join()
+  
     if not logger_main == None:
         logger_main.debug("App stop")
     time.sleep(1)

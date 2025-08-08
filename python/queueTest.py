@@ -16,7 +16,9 @@ class QueueTestEvents():
     """
     Sammlung von Events zur Steuerung und Überwachung des Server-Prozesses.
     """
-    test_done: MyEvent = field(default_factory=MyEvent)
+    name : str = "QueueTest"
+    test_done: MyEvent = MyEvent(name = f"{name} test_done")
+    shutdown : MyEvent = MyEvent(name = f"{name} shutdown")
 
 @dataclass
 class QueueTestFlags():
@@ -36,12 +38,12 @@ class QueueTest():
         
         self.queues = queues
         
-        self.is_started : bool = False        
+        self.is_started : bool = False      
         self.set_test_msg_done : bool = False
         self.timer_expired : bool = False
         
         self.events : QueueTestEvents = events
-        self.events_timer : TimerEvents = TimerEvents()
+        self.events_timer : TimerEvents = TimerEvents(name="Queue test timer")
         self.timer : MyTimerThreadStartStop = MyTimerThreadStartStop(
             name="timer_queue_test", logger=loggerTimer, interval_s = 10, 
             function= self._callback_timer_test, 
@@ -148,10 +150,12 @@ class QueueTest():
                 
     def shutdown(self):
         self.logger.debug("QueueTest - shutdown")
-        self.is_started = False
-        self.events_timer.shutdown.set()
-    
+        self.timer_expired = False
+        self.timer.shutdown()
+
     def join(self):
-        self.logger.debug("QueueTest - join")
         self.timer.join()
-            
+        self.logger.debug("QueueTest - Timer join")
+        self.is_started = False
+        self.set_test_msg_done = False
+
