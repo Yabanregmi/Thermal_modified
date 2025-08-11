@@ -75,7 +75,8 @@ class Tb_IrProcess(multiprocessing.Process):
     def run(self) -> None:
         self.logger.debug(f"{self.__class__.__name__} - {self.name} running")
         while not self.events.shutdown.is_set():
-            msg_in = self.queues.ir.get()
+            msg_in = self.queues.ir.get()    
+               
             if not self.queue_test_send_ack(msg=msg_in):
                 self.events.error.set()
             self.events.heartbeat.set()

@@ -30,3 +30,4 @@ urllib3==1.26.12
 wsproto==1.2.0
 websocket-client
 aiohttp
+opencv-python
