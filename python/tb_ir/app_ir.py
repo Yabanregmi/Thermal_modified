@@ -10,7 +10,7 @@ import csv
 from queue import Queue
 import socketio
 from tb_ir import frame_database, camera_control
-from models.tb_dataclasses import QueueMessage, QueuesMembers, QueueTestEvents, SocketEventsFromBackend, SocketEventsToBackend
+from models.tb_dataclasses import QueueMessage, SocketEventsFromBackend, SocketEventsToBackend
 
 
 MANUAL_RECORD_LIMIT = 600  # Default maximum duration for manual recording
