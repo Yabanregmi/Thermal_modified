@@ -24,6 +24,7 @@ class SocketEventsFromBackend(Enum):
 
 
 class SocketEventsToBackend(Enum):
+    ACK_RESET_ALARM = "ACK_RESET_ALARM",
     ACK_RESET_ERROR = "ACK_RESET_ERROR",
     ACK_SET_CONFIG = "ACK_SET_CONFIG",
     ACK_SET_TEMPRETURE = "ACK_SET_TEMPRETURE",

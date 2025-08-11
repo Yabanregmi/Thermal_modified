@@ -57,6 +57,7 @@ def main ():
     errors = None 
     errors = Errors()
     app = None
+    
     try:
         event_logger_stop : Tb_Event = Tb_Event(name="event_logger_stop")
         TbLogger.configure(logfile=Path("log.txt"),loglevel=DEBUG,event_stop=event_logger_stop)
@@ -116,10 +117,10 @@ def main ():
             errors.heartbeat = app.heartbeat.run(cnt=counter)
             
             # Error handling - Server process   
-            if app.events_server.error_from_server_process.wait(timeout=0):
+            if not errors.server and app.events_server.error_from_server_process.wait(timeout=0):
                 app.logger_main.debug("Server process error")
                 errors.server = True
-            elif app.events_server.server_process_okay.wait(timeout=0):
+            elif errors.server and app.events_server.server_process_okay.wait(timeout=0):
                 app.logger_main.debug("Server process okay")
                 errors.server = False
 

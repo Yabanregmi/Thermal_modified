@@ -22,8 +22,19 @@ tasks:
     cmds:
       - npm install --prefix frontend
 
+  install_linux:
+    desc: "Installiert alle nötigen Systempakete für Linux"
+    cmds:
+      - sudo apt-get update
+      - sudo bash -c 'echo "options uvcvideo nodrop=1" > /etc/modprobe.d/uvcvideo.conf'
+      - sudo apt-get install -y cmake freeglut3-dev libusb-1.0-0-dev libglut-dev libudev-dev
+      - sudo dpkg -i libirimager-8.9.3-ubuntu-22.04-arm64.deb || sudo apt-get -f install -y
+      - sudo apt install -y ./otcsdk-10.0.0-*.deb || sudo apt-get -f install -y
+      - sudo ir_download_calibration
+      - ir_generate_configuration > $(ir_find_serial).xml
+
   install_all:
-    deps: [install_python, install_cpp, install_backend, install_frontend]
+    deps: [install_linux, install_python, install_cpp, install_backend, install_frontend]
 
   build_cpp:
     cmds:

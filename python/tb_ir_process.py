@@ -36,6 +36,7 @@ from models.tb_dataclasses import QueueMessage, QueueTestEvents, QueuesMembers
 from logging import Logger
 from tb_events import IrEvents
 from tb_queues import SystemQueues
+from tb_ir import app_ir, camera_control, frame_database
 
 class Tb_IrProcess(multiprocessing.Process):
     """
@@ -73,30 +74,65 @@ class Tb_IrProcess(multiprocessing.Process):
             self.logger.debug(f"{self.__class__.__name__} - {self.name} called shutdown")
    
     def run(self) -> None:
+        global anomaly_worker_thread 
+        global mode, frame, temp, recording, anomaly_active
+        global anomaly_thread, manual_record_thread
+        global last_trigger_time, last_test_time, exit_flag, event_recording_enabled
+
         self.logger.debug(f"{self.__class__.__name__} - {self.name} running")
+
+        app_ir.load_config()  
+
+        RETRIGGER_COOLDOWN = 15
+        TEST_TIMEOUT = 180
+        last_trigger_time = 0
+        last_test_time = time.time()
+
+        init : bool = False
+        cam = None
+        db = None
+        
         while not self.events.shutdown.is_set():
-            msg_in = self.queues.ir.get()    
-               
-            if not self.queue_test_send_ack(msg=msg_in):
-                self.events.error.set()
-            self.events.heartbeat.set()
-            time.sleep(0.1)
-             
+            if not init :
+                try:
+                    cam = camera_control.CameraController()
+                    db = frame_database.FrameDatabase("frame_store.db")
+                    init = True
+                except Exception as e: 
+                    self.logger.error(f"Failed to initialize camera or DB: {e}")
+                    event_recording_enabled = False
+                    cam = None 
+            else:    
+                msg_in = self.queues.ir.get()
+                if not msg_in is None: 
+                    if msg_in.source is QueuesMembers.MAIN and msg_in.dest is QueuesMembers.IR and msg_in.event is QueueTestEvents.REQ_FROM_MAIN_TO_IR:
+                        if not self.queue_test_send_ack(msg=msg_in):
+                            self.events.error.set()
+                    else:
+                        app_ir.ir_command_handler(msg = msg_in)
+                self.events.heartbeat.set()
+            time.sleep(1)
+
         if self.events.shutdown.is_set():
             self.events.shutdown.clear()
+        
+        if cam and hasattr(cam, "shutdown"):
+            cam.shutdown()
+        if db:
+            db.close()
         time.sleep(1)
         
-    def queue_test_send_ack(self, msg : QueueMessage | None) -> bool:
+    def queue_test_send_ack(self, msg : QueueMessage) -> bool:
         status : bool = False
         try:
-            if not msg is None:
-                if msg.event == QueueTestEvents.REQ_FROM_MAIN_TO_IR:
-                    queue_test_msg_ack : QueueMessage = QueueMessage(source=QueuesMembers.IR,dest=QueuesMembers.MAIN,
-                        event=QueueTestEvents.ACK_FROM_IR_TO_MAIN, timestamp=time.time(), data = "")
-                    if not self.queues.main.put(item=queue_test_msg_ack):
-                        status = False
-                    else:
-                        status = True
+            if msg.event == QueueTestEvents.REQ_FROM_MAIN_TO_IR:
+                queue_test_msg_ack : QueueMessage = QueueMessage(source=QueuesMembers.IR,dest=QueuesMembers.MAIN,
+                    event=QueueTestEvents.ACK_FROM_IR_TO_MAIN, timestamp=time.time(), data = "")
+                if not self.queues.main.put(item=queue_test_msg_ack):
+                    status = False
+                else:
+                    status = True
         except Exception:
             status = False
         return status
+    
