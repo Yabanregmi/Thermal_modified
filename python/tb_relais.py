@@ -1,14 +1,14 @@
 import smbus2 as smbus
 from typing import List
 from logging import Logger
-class Relay:
+class Tb_Relay:
     # Konstanten
     NUM_RELAY_PORTS: int = 4
     DEVICE_ADDRESS: int = 0x24
     DEVICE_CONFIGURATION_REGISTER: int = 0x06
     DEVICE_OUTPUT_PORT_REGISTER: int = 0x02
     DEVICE_SET_PINS_AS_OUTPUTS: int = 0x00
-    DEVICE_DATA: int = 0x00
+    device_data: int = 0x00
 
     # Statusflags (global für alle Relais im System!)
     relay_1_is_set: bool = False
@@ -29,7 +29,7 @@ class Relay:
         self._reset_register()
         
         
-        if relais_names is not None and len(relais_names) > 4:
+        if len(relais_names) > 4:
             self.relais_names = relais_names
         else:
             self.relais_names = ["Relais1","Relais2","Relais3","Relais4"]
@@ -95,16 +95,16 @@ class Relay:
     def _relay_on(self, relay_num: int, name : str) -> None:
         if 0 < relay_num <= self.NUM_RELAY_PORTS:
             self.logger.warning(f'Relay {name} ON')
-            self.DEVICE_DATA |= (0x1 << (relay_num - 1))
-            self.bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_OUTPUT_PORT_REGISTER, self.DEVICE_DATA)
+            self.device_data |= (0x1 << (relay_num - 1))
+            self.bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_OUTPUT_PORT_REGISTER, self.device_data)
         else:
             self.logger.warning(f'Invalid relay #: {name}')
 
     def _relay_off(self, relay_num: int, name : str) -> None:
         if 0 < relay_num <= self.NUM_RELAY_PORTS:
             self.logger.warning(f'Relay {name} OFF')
-            self.DEVICE_DATA &= ~(0x1 << (relay_num - 1))
-            self.bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_OUTPUT_PORT_REGISTER, self.DEVICE_DATA)
+            self.device_data &= ~(0x1 << (relay_num - 1))
+            self.bus.write_byte_data(self.DEVICE_ADDRESS, self.DEVICE_OUTPUT_PORT_REGISTER, self.device_data)
         else:
             self.logger.warning(f'Invalid relay #: {name}')
 
@@ -120,7 +120,7 @@ class Relay:
         res = self.relay_get_port_data(relay_num)
         if res > 0:
             mask = 1 << (relay_num - 1)
-            return (self.DEVICE_DATA & mask) == 0
+            return (self.device_data & mask) == 0
         else:
             self.logger.warning("Specified relay port is invalid")
             return False
