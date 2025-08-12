@@ -146,7 +146,7 @@ class Tb_ReadOnlyQueue:
         """
         raise RuntimeError("This queue is read-only!")
     
-class SystemQueues:
+class MainQueues:
     @classmethod
     def init(cls, logger_main : Logger, logger_server : Logger, logger_ir : Logger):
         cls.logger_main =logger_main
@@ -156,4 +156,12 @@ class SystemQueues:
         cls.main = Tb_Queue(name = "main", logger=cls.logger_main)
         cls.server = Tb_Queue( name = "server", logger=cls.logger_server)
         cls.ir = Tb_Queue(name = "ir", logger=cls.logger_ir)
-    
+
+class SocketQueues:
+    @classmethod
+    def init(cls, logger_server_to_ir : Logger, logger_ir_to_server : Logger):
+        cls.logger_server_to_ir = logger_server_to_ir
+        cls.logger_ir_to_server = logger_ir_to_server
+
+        cls.server_to_ir = Tb_Queue(name = "server_to_ir", logger=cls.logger_server_to_ir)
+        cls.ir_to_server = Tb_Queue( name = "ir_to_server", logger=cls.logger_ir_to_server)

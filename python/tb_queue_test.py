@@ -31,6 +31,7 @@ class Tb_QueueTestFlags():
 
 class Tb_QueueTest(ABC): 
     def __init__(self):
+        self.name : str
         self.logger : Logger
         self.events : Tb_QueueTestEvents 
         self.queue : Tb_Queue     
@@ -46,7 +47,7 @@ class Tb_QueueTest(ABC):
         if not self.events.is_started.is_set() and not self.events.is_error.is_set():
             msg : QueueMessage = QueueMessage(source=self.source,dest=self.dest,event=self.msg_event_req,timestamp=time(),data="")
             if not self.queue.put(item=msg):
-                self.logger.debug("QueueTest{self.name}: Queue full")
+                self.logger.error("QueueTest{self.name}: Queue full")
                 self.events.is_error.set()
             else:
                 self.events.is_started.set()

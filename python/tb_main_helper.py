@@ -4,7 +4,7 @@ from tb_logger import TbLogger
 from config import SERVER_URL
 from tb_relais import Tb_Relay
 from tb_queue_test import Tb_QueueTestMain, Tb_QueueTestServer, Tb_QueueTestIr, Tb_QueueTestEvents
-from tb_queues import SystemQueues, Tb_Queue
+from tb_queues import MainQueues, SocketQueues, Tb_Queue
 from tb_events import ServerEvents, IrEvents, UserInputsEvents, Tb_Event
 from tb_server_process import Tb_ServerProcess
 from tb_ir_process import Tb_IrProcess
@@ -34,20 +34,22 @@ class AppContext:
             self.events_user_input = self._init_events_user_input()
 
             self.heartbeat = self._init_heartbeat(event_heartbeat_server =self.events_server.heartbeat, event_heartbeat_ir = self.events_ir.heartbeat)
-            self.system_queues = self._init_system_queues()
-            self.server_process = self._init_server_process(self.system_queues, self.events_server)
-            self.ir_process = self._init_ir_process(self.system_queues, self.events_ir)
-            self.thread_user_input = self._init_user_input(self.events_user_input)
+            self.main_queues = self._init_main_queues()
+            self.socket_queues = self._init_socket_queues()
+            
+            self.server_process = self._init_server_process(main_queues=self.main_queues,socket_queues=self.socket_queues, events= self.events_server)
+            self.ir_process = self._init_ir_process(main_queues=self.main_queues,socket_queues=self.socket_queues, events= self.events_ir)
+            self.thread_user_input = self._init_user_input(events=self.events_user_input)
             self.relays = self._init_relais()
 
             self.events_queue_test_main = self._init_events_queue_test(name="Main")
-            self.queue_test_main = self._init_queue_test_main(queue=self.system_queues.main,events=self.events_queue_test_main)
+            self.queue_test_main = self._init_queue_test_main(queue=self.main_queues.main,events=self.events_queue_test_main)
 
             self.events_queue_test_server = self._init_events_queue_test(name="Server")
-            self.queue_test_server = self._init_queue_test_server(queue=self.system_queues.server,events=self.events_queue_test_server)
+            self.queue_test_server = self._init_queue_test_server(queue=self.main_queues.server,events=self.events_queue_test_server)
 
             self.events_queue_test_ir = self._init_events_queue_test(name="Ir")
-            self.queue_test_ir = self._init_queue_test_ir(queue=self.system_queues.ir,events=self.events_queue_test_ir)
+            self.queue_test_ir = self._init_queue_test_ir(queue=self.main_queues.ir,events=self.events_queue_test_ir)
         except Exception as e:
             raise RuntimeError("Fehler bei der Initialisierung der Appself-Komponenten") from e
 
@@ -69,12 +71,12 @@ class AppContext:
         self.ir_process.join()
         self.server_process.shutdown()
         self.server_process.join()
-        self.system_queues.main.shutdown()
-        self.system_queues.server.shutdown()
-        self.system_queues.ir.shutdown()
-        self.system_queues.main.join()
-        self.system_queues.server.join()
-        self.system_queues.ir.join()
+        self.main_queues.main.shutdown()
+        self.main_queues.server.shutdown()
+        self.main_queues.ir.shutdown()
+        self.main_queues.main.join()
+        self.main_queues.server.join()
+        self.main_queues.ir.join()
         self.thread_user_input.shutdown()
         self.thread_user_input.join()
         self.logger_main.debug("App stop")
@@ -110,28 +112,39 @@ class AppContext:
         except Exception as e:
             raise ValueError("Fehler beim Initialisieren des Heartbeats") from e
 
-    def _init_system_queues(self) -> SystemQueues:
+    def _init_main_queues(self) -> MainQueues:
         try:
-            system_queues = SystemQueues()
+            main_queues = MainQueues()
             logger_main = TbLogger.get_logger("logger_queue_main")
             logger_server = TbLogger.get_logger("logger_queue_server")
             logger_ir = TbLogger.get_logger("logger_queue_ir")
-            system_queues.init(logger_main=logger_main, logger_server=logger_server, logger_ir=logger_ir)
-            return system_queues
+            main_queues.init(logger_main=logger_main, logger_server=logger_server, logger_ir=logger_ir)
+            return main_queues
         except Exception as e:
-            raise ValueError("Fehler beim Initialisieren der System Queues") from e
+            raise ValueError("Fehler beim Initialisieren der MainQueues") from e
+    
+    def _init_socket_queues(self) -> SocketQueues:
+        try:
+            socket_queues = SocketQueues()
+            logger_server_to_ir = TbLogger.get_logger("logger_server_to_ir")
+            logger_ir_to_server = TbLogger.get_logger("logger_ir_to_server")
 
-    def _init_server_process(self, queues: SystemQueues, events: ServerEvents) -> Tb_ServerProcess:
+            socket_queues.init(logger_server_to_ir = logger_server_to_ir, logger_ir_to_server = logger_ir_to_server)
+            return socket_queues
+        except Exception as e:
+            raise ValueError("Fehler beim Initialisieren der MainQueues") from e
+
+    def _init_server_process(self, main_queues: MainQueues, socket_queues : SocketQueues,events: ServerEvents) -> Tb_ServerProcess:
         try:
             logger_server = TbLogger.get_logger("logger_server_process")
-            return Tb_ServerProcess(name="server_process", logger=logger_server, url=SERVER_URL, events=events, queues=queues)
+            return Tb_ServerProcess(name="server_process", logger=logger_server, url=SERVER_URL, events=events, main_queues=main_queues, socket_queues = socket_queues)
         except Exception as e:
             raise ValueError("Fehler beim Initialisieren des Server-Prozesses") from e
 
-    def _init_ir_process(self, queues: SystemQueues, events: IrEvents) -> Tb_IrProcess:
+    def _init_ir_process(self, main_queues: MainQueues, socket_queues : SocketQueues, events: IrEvents) -> Tb_IrProcess:
         try:
             logger_ir = TbLogger.get_logger("logger_ir_process")
-            return Tb_IrProcess(name="ir_process", logger=logger_ir, events=events, queues=queues)
+            return Tb_IrProcess(name="ir_process", logger=logger_ir, events=events, main_queues=main_queues, socket_queues = socket_queues)
         except Exception as e:
             raise ValueError("Fehler beim Initialisieren des Ir-Prozesses") from e
 

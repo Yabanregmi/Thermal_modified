@@ -3,7 +3,7 @@ import multiprocessing
 
 from logging import Logger
 from tb_events import ServerEvents
-from tb_queues import SystemQueues
+from tb_queues import MainQueues, SocketQueues
 import time
 from models.tb_dataclasses import QueuesMembers, SocketEventsFromBackend, SocketEventsToBackend, SocketMessage, QueueMessage, QueueTestEvents
 from typing import Callable, Any
@@ -16,7 +16,7 @@ class Tb_ServerProcess(multiprocessing.Process):
     """
     Basisklasse für alle Prozesse im System, die mit dem Server kommunizieren.
     """
-    def __init__(self, name: str, logger: Logger, url: str, events: ServerEvents, queues : SystemQueues) -> None:
+    def __init__(self, name: str, logger: Logger, url: str, events: ServerEvents, main_queues : MainQueues, socket_queues : SocketQueues) -> None:
         """
         Initialisiert den ServerProcess.
 
@@ -37,8 +37,9 @@ class Tb_ServerProcess(multiprocessing.Process):
         self.url :str= url
         self.events : ServerEvents = events
         
-        self.queues : SystemQueues = queues
-
+        self.main_queues : MainQueues = main_queues
+        self.socket_queues : SocketQueues = socket_queues
+        
         self.in_konfig_modus: bool = False
         self.is_connected: bool = False
         self.is_connected_error : bool = False
@@ -212,7 +213,7 @@ class Tb_ServerProcess(multiprocessing.Process):
                 except Exception:
                     self.is_connected = False
         
-            msg_in = self.queues.server.get()
+            msg_in = self.main_queues.server.get()
             
             if not msg_in is None:
                 if msg_in.source is QueuesMembers.MAIN and msg_in.dest is QueuesMembers.SERVER and msg_in.event is QueueTestEvents.REQ_FROM_MAIN_TO_SERVER:
@@ -239,7 +240,7 @@ class Tb_ServerProcess(multiprocessing.Process):
         try:
             if req_msg.event is QueueTestEvents.REQ_FROM_MAIN_TO_SERVER:
                 res_msg : QueueMessage = QueueMessage(source=QueuesMembers.SERVER,dest=QueuesMembers.MAIN, event=QueueTestEvents.ACK_FROM_SERVER_TO_MAIN, data="")
-                if not self.queues.main.put(item=res_msg):
+                if not self.main_queues.main.put(item=res_msg):
                     status = False
                 else:
                     status = True

@@ -35,14 +35,14 @@ import time
 from models.tb_dataclasses import QueueMessage, QueueTestEvents, QueuesMembers
 from logging import Logger
 from tb_events import IrEvents
-from tb_queues import SystemQueues
+from tb_queues import MainQueues, SocketQueues
 from tb_ir import app_ir, camera_control, frame_database
 
 class Tb_IrProcess(multiprocessing.Process):
     """
     Basisklasse für alle Prozesse im System, die mit dem Server kommunizieren.
     """
-    def __init__(self, name: str, logger: Logger, events: IrEvents, queues : SystemQueues) -> None:
+    def __init__(self, name: str, logger: Logger, events: IrEvents, main_queues : MainQueues, socket_queues : SocketQueues) -> None:
         """
         Initialisiert den ServerProcess.
 
@@ -62,7 +62,8 @@ class Tb_IrProcess(multiprocessing.Process):
         self.logger = logger
         self.events = events
         
-        self.queues : SystemQueues = queues
+        self.main_queues : MainQueues = main_queues
+        self.socket_queues : SocketQueues = socket_queues
         self.logger.debug(f"{self.__class__.__name__} - {self.name} init")
 
     def shutdown(self):
@@ -103,7 +104,7 @@ class Tb_IrProcess(multiprocessing.Process):
                     event_recording_enabled = False
                     cam = None 
             else:    
-                msg_in = self.queues.ir.get()
+                msg_in = self.main_queues.ir.get()
                 if not msg_in is None: 
                     if msg_in.source is QueuesMembers.MAIN and msg_in.dest is QueuesMembers.IR and msg_in.event is QueueTestEvents.REQ_FROM_MAIN_TO_IR:
                         if not self.queue_test_send_ack(msg=msg_in):
@@ -128,7 +129,7 @@ class Tb_IrProcess(multiprocessing.Process):
             if msg.event == QueueTestEvents.REQ_FROM_MAIN_TO_IR:
                 queue_test_msg_ack : QueueMessage = QueueMessage(source=QueuesMembers.IR,dest=QueuesMembers.MAIN,
                     event=QueueTestEvents.ACK_FROM_IR_TO_MAIN, timestamp=time.time(), data = "")
-                if not self.queues.main.put(item=queue_test_msg_ack):
+                if not self.main_queues.main.put(item=queue_test_msg_ack):
                     status = False
                 else:
                     status = True

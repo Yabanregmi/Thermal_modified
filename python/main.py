@@ -41,14 +41,18 @@ def start_queue_test(queueTest : Tb_QueueTest, counter : int) -> None:
         queueTest.started = True
         queueTest.start()
 
-def check_queue_test(queueTest : Tb_QueueTest, counter : int) -> None:
+def check_queue_test(logger: Logger,queueTest : Tb_QueueTest, counter : int) -> None:
     if queueTest.started and abs(counter - queueTest.pre_cnt) > 5:
         queueTest.pre_cnt = counter
-        if not queueTest.events.is_done.is_set():
+        if not queueTest.error and not queueTest.events.is_done.is_set():
             queueTest.events.is_error.set()
-        else:
+            queueTest.error = True
+            logger.debug(f"QueueTest {queueTest.name}: error")
+        elif queueTest.error:
             queueTest.events.is_done.clear()
+            queueTest.error = False
             queueTest.events.is_okay.set()
+            logger.debug(f"QueueTest {queueTest.name}: okay")
         queueTest.started = False
 
 def main ():
@@ -71,7 +75,7 @@ def main ():
 
         while loop_forever:
             for i in range(0,20): # type: ignore
-                msg = app.system_queues.main.get() 
+                msg = app.main_queues.main.get() 
                 if msg is None:
                     break
                 
@@ -88,10 +92,10 @@ def main ():
             start_queue_test(queueTest=app.queue_test_server,counter=counter)
             start_queue_test(queueTest=app.queue_test_ir,counter=counter)
 
-            check_queue_test(queueTest=app.queue_test_main,counter=counter)
+            check_queue_test(logger=logger_main,queueTest=app.queue_test_main,counter=counter)
 
-            check_queue_test(queueTest=app.queue_test_server,counter=counter)
-            check_queue_test(queueTest=app.queue_test_ir,counter=counter)
+            check_queue_test(logger=logger_main,queueTest=app.queue_test_server,counter=counter)
+            check_queue_test(logger=logger_main,queueTest=app.queue_test_ir,counter=counter)
             
 
             if app.queue_test_main.events.is_okay.wait(timeout=0):
