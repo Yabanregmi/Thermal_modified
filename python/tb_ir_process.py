@@ -103,6 +103,7 @@ class Tb_IrProcess(multiprocessing.Process):
                     self.logger.error(f"Failed to initialize camera or DB: {e}")
                     event_recording_enabled = False
                     cam = None 
+                    init = False
             else:    
                 msg_in = self.main_queues.ir.get()
                 if not msg_in is None: 
@@ -113,6 +114,10 @@ class Tb_IrProcess(multiprocessing.Process):
                         msg_out = app_ir.ir_command_handler(msg_in=msg_in)
                         if not self.queue_send_to_server(msg = msg_out):
                             self.events.error.set()
+                ### Kamera hier einfügen
+                
+                
+                ###
                 self.events.heartbeat.set()
             time.sleep(1)
 
