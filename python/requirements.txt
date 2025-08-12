@@ -31,3 +31,4 @@ wsproto==1.2.0
 websocket-client
 aiohttp
 opencv-python
+json

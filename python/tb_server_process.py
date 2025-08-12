@@ -5,7 +5,7 @@ from logging import Logger
 from tb_events import ServerEvents
 from tb_queues import MainQueues, SocketQueues
 import time
-from models.tb_dataclasses import QueuesMembers, SocketEventsFromBackend, SocketEventsToBackend, SocketMessage, QueueMessage, QueueTestEvents
+from models.tb_dataclasses import QueuesMembers, SocketEventsFromBackend, SocketEventsToBackend, QueueMessage, QueueTestEvents, QueueMessageHeader
 from typing import Callable, Any
 
 MAXIMUM_TIMEOUT: int = 10
@@ -123,20 +123,40 @@ class Tb_ServerProcess(multiprocessing.Process):
         self.events.message.set()
 
     # Backend-Sende-Methoden
+    def _prepare_backend_msg(self, event : SocketEventsToBackend, payload : dict = {}) -> QueueMessage:
+        header : QueueMessageHeader = QueueMessageHeader(
+            source=QueuesMembers.SERVER, 
+            dest = QueuesMembers.BACKEND, 
+            event =event,
+            id="",
+            user="",
+            timestamp=time.time())
+        return QueueMessage(header = header, payload=payload)    
+    
+    def _prepare_queue_test_msg(self, event : QueueTestEvents, payload : dict = {}) -> QueueMessage:
+        header : QueueMessageHeader = QueueMessageHeader(
+            source=QueuesMembers.SERVER, 
+            dest = QueuesMembers.MAIN, 
+            event =event,
+            id="",
+            user="",
+            timestamp=time.time())
+        return QueueMessage(header = header, payload=payload)    
+    
     def ack_config(self) -> None:
-        msg : SocketMessage = SocketMessage(event=SocketEventsToBackend.ACK_SET_CONFIG, data="")
+        msg : QueueMessage = self._prepare_backend_msg(event = SocketEventsToBackend.ACK_SET_CONFIG)    
         self.sio.send_event(msg=msg,callback=self.ack_config_callback)
 
-    def ack_tempreture(self,data:str) -> None:
-        msg : SocketMessage = SocketMessage(event=SocketEventsToBackend.ACK_SET_TEMPRETURE, data=data)
+    def ack_tempreture(self,data:dict) -> None:
+        msg : QueueMessage = self._prepare_backend_msg(event = SocketEventsToBackend.ACK_SET_TEMPRETURE, payload=data)    
         self.sio.send_event(msg=msg,callback=self.ack_tempreture_callback)
 
     def timeout_stop_record(self) -> None:
-        msg : SocketMessage = SocketMessage(event=SocketEventsToBackend.ACK_MANUAL_STOP_RECORD, data="")
+        msg : QueueMessage = self._prepare_backend_msg(event = SocketEventsToBackend.ACK_MANUAL_STOP_RECORD)
         self.sio.send_event(msg=msg,callback=self.timeout_stop_record_callback)
 
     def ack_call_live_tempreture(self) -> None:
-        msg : SocketMessage = SocketMessage(event=SocketEventsToBackend.ACK_CALL_LIVE_TEMPRETURE, data="")
+        msg : QueueMessage = self._prepare_backend_msg(event = SocketEventsToBackend.ACK_CALL_LIVE_TEMPRETURE)
         self.sio.send_event(msg=msg,callback=self.ack_call_live_tempreture_callback)
 
     def ack_config_callback(self, response: Any = None) -> None:
@@ -181,8 +201,9 @@ class Tb_ServerProcess(multiprocessing.Process):
         self.logger.debug(f"{self.__class__.__name__} - {self.name} reset")
         return self.state
 
-    def send_to_backend(self, event:SocketEventsToBackend,data:str,callback: Callable[..., None]) -> None:
-        res_msg = SocketMessage(event=event,data=data)
+    def send_to_backend(self, event:SocketEventsToBackend,data:dict,callback: Callable[..., None]) -> None:
+        res_msg : QueueMessage = self._prepare_backend_msg(event = event,payload=data)
+        self.logger.debug(f"Server {res_msg} ")
         self.sio.send_event(msg=res_msg,callback=self.ack_send_to_backend)
     
     def ack_send_to_backend(self) -> None:
@@ -196,7 +217,7 @@ class Tb_ServerProcess(multiprocessing.Process):
         while not self.events.shutdown.is_set():
             if self.events.message.is_set():
                 self.events.message.clear()
-                self.send_to_backend(event=SocketEventsToBackend.ACK_MESSAGE,data="Hallo Peter", callback=self.ack_send_to_backend)
+                self.send_to_backend(event=SocketEventsToBackend.ACK_MESSAGE,data={"antwort":"Hallo Peter"}, callback=self.ack_send_to_backend)
 
             if  self.events.error_on_connection.is_set():
                 self.events.error_on_connection.clear()
@@ -216,12 +237,12 @@ class Tb_ServerProcess(multiprocessing.Process):
             msg_in = self.main_queues.server.get()
             
             if not msg_in is None:
-                if msg_in.source is QueuesMembers.MAIN and msg_in.dest is QueuesMembers.SERVER and msg_in.event is QueueTestEvents.REQ_FROM_MAIN_TO_SERVER:
+                if msg_in.header.source is QueuesMembers.MAIN and msg_in.header.dest is QueuesMembers.SERVER and msg_in.header.event is QueueTestEvents.REQ_FROM_MAIN_TO_SERVER:
                     if not self.queue_test_send_ack(req_msg=msg_in):
                         self.events.error_from_server_process.set()
                 elif self.is_connected :
-                    if msg_in.dest is QueuesMembers.BACKEND and msg_in.event in SocketEventsToBackend:
-                        self.send_to_backend(event=SocketEventsToBackend(msg_in.event) ,data=msg_in.data, callback=self.ack_send_to_backend)
+                    if msg_in.header.dest is QueuesMembers.BACKEND and msg_in.header.event in SocketEventsToBackend:
+                        self.send_to_backend(event=SocketEventsToBackend(msg_in.header.event) ,data=msg_in.payload, callback=self.ack_send_to_backend)
         
             self.events.heartbeat.set()
             time.sleep(0.1)
@@ -238,8 +259,8 @@ class Tb_ServerProcess(multiprocessing.Process):
     def queue_test_send_ack(self, req_msg : QueueMessage) -> bool:
         status : bool = False
         try:
-            if req_msg.event is QueueTestEvents.REQ_FROM_MAIN_TO_SERVER:
-                res_msg : QueueMessage = QueueMessage(source=QueuesMembers.SERVER,dest=QueuesMembers.MAIN, event=QueueTestEvents.ACK_FROM_SERVER_TO_MAIN, data="")
+            if req_msg.header.event is QueueTestEvents.REQ_FROM_MAIN_TO_SERVER:
+                res_msg : QueueMessage = self._prepare_queue_test_msg(event=QueueTestEvents.ACK_FROM_SERVER_TO_MAIN)               
                 if not self.main_queues.main.put(item=res_msg):
                     status = False
                 else:

@@ -1,3 +1,4 @@
+from re import M
 import cv2
 import numpy as np
 import datetime
@@ -10,8 +11,9 @@ import csv
 from queue import Queue
 import socketio
 from tb_ir import frame_database, camera_control
-from models.tb_dataclasses import QueueMessage, SocketEventsFromBackend, SocketEventsToBackend
-
+from models.tb_dataclasses import QueueMessage, SocketEventsFromBackend, SocketEventsToBackend, QueueMessageHeader
+from tb_ir_process import QueuesMembers
+from collections import deque
 
 MANUAL_RECORD_LIMIT = 600  # Default maximum duration for manual recording
 
@@ -74,9 +76,6 @@ sio = socketio.Client()
 logger = logging.getLogger("IR_App")
 events_ir = None  # Placeholder for IR app events(from IRAppProcess)
 queue_ir = None  # Placeholder for IR app queue(from IRAppProcess)
-
-
-from collections import deque
 
 # Error history for user notification
 ERROR_HISTORY_LIMIT = 50  # Keep last 50 errors
@@ -301,7 +300,7 @@ def save_anomaly_video(cam, db_path, temp, timestamp, save_dir, duration=5, fps=
     global exit_flag
     try:
         with db_lock:
-            db = FrameDatabase(db_path)
+            db : frame_database.FrameDatabase = frame_database.FrameDatabase(db_path)
             retrospective_frames = db.get_frames_from_last_n_seconds(seconds=10)
             db.close()
 
@@ -540,9 +539,10 @@ def retry_io_action(action, action_name="IO Action", retries=3, delay=0.5):
 def safe_insert_frame(frame, retries=3, delay=0.2):
     for attempt in range(1, retries + 1):
         try:
-            with db_lock:
-                db.insert_frame(frame)
-            return True
+            if not db is None: 
+                with db_lock:
+                    db.insert_frame(frame)
+                return True
         except Exception as e:
             logging.warning(f"DB insert error on attempt {attempt}: {e}")
             time.sleep(delay)
@@ -564,57 +564,76 @@ def set_recording_type_from_server(rec_type, user="server"):
     logging.warning(f"Invalid recording type requested: {rec_type}")
     return False
 
-def set_config(data):
+def _prepare_backend_msg(event : SocketEventsToBackend, payload : dict = {}) -> QueueMessage:
+    header : QueueMessageHeader = QueueMessageHeader(
+        source=QueuesMembers.IR, 
+        dest = QueuesMembers.BACKEND, 
+        event =event,
+        id="",
+        user="",
+        timestamp=time.time())
+    return QueueMessage(header = header, payload=payload)    
+
+def set_config(msg_in : QueueMessage) -> QueueMessage:
     try:
-        payload = data.get("payload", {})
-        user = data.get("user", "server")
-        request_id = data.get("request_id", "n/a")
+        source : QueuesMembers = msg_in.header.source
+        dest : QueuesMembers = msg_in.header.dest
+        user : str = msg_in.header.user
+        id : str = msg_in.header.id 
+        timestamp : float = msg_in.header.timestamp
+        payload = msg_in.payload
+
+        msg_out : QueueMessage
 
         if mode != SystemMode.TEST:
-            ack_config(request_id, "error", "Configuration changes only allowed in TEST mode.")
-            return
+            msg_out = ack_config(id=id, status="error", message="Configuration changes only allowed in TEST mode.")
+        else:
+            if "start_threshold" in payload:
+                set_start_threshold(payload["start_threshold"], user)
+            if "stop_threshold" in payload:
+                set_stop_threshold(payload["stop_threshold"], user)
+            if "duration" in payload:
+                set_duration(payload["duration"], user)
+            if "manual_record_limit" in payload:
+                set_manual_record_limit(payload["manual_record_limit"], user)
+            if "save_dir" in payload:
+                set_save_dir(payload["save_dir"], user)
+            if "event_recording_enabled" in payload:
+                if payload["event_recording_enabled"]:
+                    enable_event_recording(user)
+                else:
+                    disable_event_recording(user)
+            if "mode" in payload:
+                set_mode(payload["mode"], user)
+            if "recording_type" in payload:
+                set_recording_type_from_server(payload["recording_type"], user)
 
-        if "start_threshold" in payload:
-            set_start_threshold(payload["start_threshold"], user)
-        if "stop_threshold" in payload:
-            set_stop_threshold(payload["stop_threshold"], user)
-        if "duration" in payload:
-            set_duration(payload["duration"], user)
-        if "manual_record_limit" in payload:
-            set_manual_record_limit(payload["manual_record_limit"], user)
-        if "save_dir" in payload:
-            set_save_dir(payload["save_dir"], user)
-        if "event_recording_enabled" in payload:
-            if payload["event_recording_enabled"]:
-                enable_event_recording(user)
-            else:
-                disable_event_recording(user)
-        if "mode" in payload:
-            set_mode(payload["mode"], user)
-        if "recording_type" in payload:
-            set_recording_type_from_server(payload["recording_type"], user)
-
-        logger.info(f"[CONFIG] Updated by {user}: {payload}")
-        ack_config(request_id, "success", "Configuration updated.")
+            logger.info(f"[CONFIG] Updated by {user}: {payload}")
+            msg_out = ack_config(id, "success", "Configuration updated.")
 
     except Exception as e:
         logger.info(f"Failed to set config: {e}")
-        ack_config(data.get("request_id", "n/a"), "error", str(e))
+        msg_out = ack_config(id=id, status="error", message="Error")
+    return msg_out
 
-def ack_config(request_id, status, message):
-    sio.emit(SocketEventsToBackend.ACK_SET_CONFIG, {
-        "request_id": request_id,
-        "status": status,
-        "message": message,
-        "mode": mode,
-        "threshold": TEMP_THRESHOLD,
-        "start_threshold": START_THRESHOLD,
-        "stop_threshold": STOP_THRESHOLD,
-        "duration": POST_EVENT_DURATION,
-        "recording_type": recording_type
-    })
+def ack_config(id : str, status : str, message : str) -> QueueMessage:
+    msg : QueueMessage = _prepare_backend_msg(
+        event = SocketEventsToBackend.ACK_SET_CONFIG,
+        payload = {
+            "id": id,
+            "status": status,
+            "message": message,
+            "mode": mode,
+            "threshold": TEMP_THRESHOLD,
+            "start_threshold": START_THRESHOLD,
+            "stop_threshold": STOP_THRESHOLD,
+            "duration": POST_EVENT_DURATION,
+            "recording_type": recording_type
+            }
+    )
+    return msg
 
-def set_temperature(data):
+def set_temperature(msg_in : QueueMessage) -> QueueMessage:
     """
     Handles temperature threshold setting from the server.
     Example data:
@@ -626,418 +645,545 @@ def set_temperature(data):
         }
     }
     """
-    request_id = data.get("request_id", "n/a")
-    payload = data.get("payload", {})
-    temp_value = payload.get("temp_threshold")
+    source : QueuesMembers = msg_in.header.source
+    dest : QueuesMembers = msg_in.header.dest
+    user : str = msg_in.header.user
+    id : str = msg_in.header.id 
+    timestamp : float = msg_in.header.timestamp
+    payload = msg_in.payload
 
-    if temp_value is None:
-        return ack_set_temperature(request_id, "error", "Missing 'temp_threshold' value")
-
+    msg_out : QueueMessage
     try:
+        if not "temp_threshold" in payload:
+            raise ValueError("temp_threshold not found in payload")
+        temp_value = payload.get("temp_threshold")
         set_threshold(temp_value, user="server")
-        return ack_set_temperature(request_id, "success", f"Temperature threshold set to {temp_value}°C")
+        msg_out = ack_set_temperature(id=id, status="success", message=f"Temperature threshold set to {temp_value}°C")
+    except ValueError as e:
+        msg_out = ack_set_temperature(id=id, status="error", message="Missing parameter value")
     except Exception as e:
-        return ack_set_temperature(request_id, "error", f"Failed to set temperature: {e}")
+        msg_out = ack_set_temperature(id=id, status="error", message=f"Failed to set temperature: {e}")
+    return msg_out
 
-def ack_set_temperature(request_id, status, message):
-    sio.emit(SocketEventsToBackend.ACK_SET_TEMPRETURE, {
-        "request_id": request_id,
-        "status": status,
-        "message": message
-    })
+def ack_set_temperature(id : str, status : str, message : str) -> QueueMessage:
+    msg : QueueMessage = _prepare_backend_msg(
+        event = SocketEventsToBackend.ACK_SET_TEMPRETURE,
+        payload = {
+                "id": id,
+                "status": status,
+                "message": message
+            }
+    )
+    return msg
 
-def manual_start_record(data):
+def manual_start_record(msg_in : QueueMessage) -> QueueMessage:
     global manual_record_thread, recording
-    request_id = data.get("request_id", "n/a")
+    source : QueuesMembers = msg_in.header.source
+    dest : QueuesMembers = msg_in.header.dest
+    user : str = msg_in.header.user
+    id : str = msg_in.header.id 
+    timestamp : float = msg_in.header.timestamp
+    payload = msg_in.payload
+
+    msg_out : QueueMessage
+
     if mode != SystemMode.TEST:
-        ack_manual_start_record(request_id, "error", "Only allowed in TEST mode")
-        return
-
-    if not recording:
-        
-        manual_record_thread = threading.Thread(
-            target=record_video, args=(cam, mode, POST_EVENT_DURATION))
-        manual_record_thread.start()
-        recording = True
-        ack_manual_start_record(request_id, "success", "Recording started")
+        msg_out = ack_manual_start_record(id=id, status="error", message= "Only allowed in TEST mode")
     else:
-        ack_manual_start_record(request_id, "error", "Already recording")
+        if not recording:
+            manual_record_thread = threading.Thread(
+                target=record_video, args=(cam, mode, POST_EVENT_DURATION))
+            manual_record_thread.start()
+            recording = True
+            msg_out = ack_manual_start_record(id=id, status="success", message="Recording started")
+        else:
+            msg_out = ack_manual_start_record(id=id, status="error", message="Already recording")
+    return msg_out
 
-def ack_manual_start_record(request_id, status, message):
-    sio.emit(SocketEventsToBackend.ACK_MANUAL_START_RECORD, {
-        "request_id": request_id,
-        "status": status,
-        "message": message
-    })
+def ack_manual_start_record(id : str, status : str, message : str):
+    msg : QueueMessage = _prepare_backend_msg(
+        event = SocketEventsToBackend.ACK_MANUAL_START_RECORD,
+        payload = {
+                "id": id,
+                "status": status,
+                "message": message
+            }
+    )
+    return msg
 
-def manual_stop_record(data):
-    request_id = data.get("request_id", "n/a")
+def manual_stop_record(msg_in : QueueMessage) -> QueueMessage:
+    source : QueuesMembers = msg_in.header.source
+    dest : QueuesMembers = msg_in.header.dest
+    user : str = msg_in.header.user
+    id : str = msg_in.header.id 
+    timestamp : float = msg_in.header.timestamp
+    payload = msg_in.payload
+
+    msg_out : QueueMessage
+
     success = stop_manual_recording_from_server()
     if success:
-        ack_manual_stop_record(request_id, "success", "Recording stopped")
+        msg_out = ack_manual_stop_record(id=id, status="success", message="Recording stopped")
     else:
-        ack_manual_stop_record(request_id, "error", "No active recording")
+        msg_out = ack_manual_stop_record(id=id, status="error", message="No active recording")
+    return msg_out
 
-def ack_manual_stop_record(request_id, status, message):
-    sio.emit(SocketEventsToBackend.ACK_MANUAL_STOP_RECORD, {
-        "request_id": request_id,
-        "status": status,
-        "message": message
-    })
+def ack_manual_stop_record(id : str, status : str, message : str) -> QueueMessage:
+    msg : QueueMessage = _prepare_backend_msg(
+        event = SocketEventsToBackend.ACK_MANUAL_STOP_RECORD,
+        payload = {
+                "id": id,
+                "status": status,
+                "message": message
+            }
+    )
+    return msg
 
 
-def timeout_stop_record(data):
-    request_id = data.get("request_id", "n/a")
+def timeout_stop_record(msg_in : QueueMessage) -> QueueMessage:
     global manual_stop_flag, recording
+    source : QueuesMembers = msg_in.header.source
+    dest : QueuesMembers = msg_in.header.dest
+    user : str = msg_in.header.user
+    id : str = msg_in.header.id 
+    timestamp : float = msg_in.header.timestamp
+    payload = msg_in.payload
+
+    msg_out : QueueMessage
     if recording:
         manual_stop_flag = True
-        ack_timeout_stop_record(request_id, "success", "Recording timed out and stopped")
+        msg_out = ack_timeout_stop_record(id=id, status="success", message="Recording timed out and stopped")
     else:
-        ack_timeout_stop_record(request_id, "error", "Nothing was recording")
+        msg_out = ack_timeout_stop_record(id=id, status="error", message="Nothing was recording")
+    return msg_out
 
-def ack_timeout_stop_record(request_id, status, message):
-    sio.emit("ack_timeout_stop_record", {
-        "request_id": request_id,
-        "status": status,
-        "message": message
-    })
+def ack_timeout_stop_record(id : str, status : str, message : str)->QueueMessage:
+    msg : QueueMessage = _prepare_backend_msg(
+        event = SocketEventsToBackend.ACK_TIMEOUT_STOP_RECORD,
+        payload = {
+                "id": id,
+                "status": status,
+                "message": message
+            }
+    )
+    return msg
 
-def call_live_temperature(data):
-    request_id = data.get("request_id", "n/a")
+def call_live_temperature(msg_in : QueueMessage) -> QueueMessage:
     global temp
-    ack_live_temperature(request_id, "success", {
+    source : QueuesMembers = msg_in.header.source
+    dest : QueuesMembers = msg_in.header.dest
+    user : str = msg_in.header.user
+    id : str = msg_in.header.id 
+    timestamp : float = msg_in.header.timestamp
+    payload = msg_in.payload
+
+    msg_out : QueueMessage
+
+    msg_out = ack_live_temperature(id=id,status= "success",message = {
         "temp": temp,
         "mode": mode,
         "recording": recording
     })
+    return msg_out
 
-def ack_live_temperature(request_id, status, info):
-    sio.emit(SocketEventsToBackend.ACK_CALL_LIVE_TEMPRETURE, {
-        "request_id": request_id,
-        "status": status,
-        "temperature": info.get("temp"),
-        "mode": info.get("mode"),
-        "recording": info.get("recording")
-    })
+def ack_live_temperature(id : str, status : str, message : dict):
+    msg : QueueMessage = _prepare_backend_msg(
+        event = SocketEventsToBackend.ACK_CALL_LIVE_TEMPRETURE,
+        payload = {
+                "id": id,
+                "status": status,
+                "temperature": message.get("temp"),
+                "mode": message.get("mode"),
+                "recording": message.get("recording")
+            }
+    )
+    return msg
 
-def call_history_temperature(data):
-    request_id = data.get("request_id", "n/a")
+def call_history_temperature(msg_in : QueueMessage) -> QueueMessage:
+    source : QueuesMembers = msg_in.header.source
+    dest : QueuesMembers = msg_in.header.dest
+    user : str = msg_in.header.user
+    id : str = msg_in.header.id 
+    timestamp : float = msg_in.header.timestamp
+    payload = msg_in.payload
+
+    msg_out : QueueMessage
+
     recent_errors = get_recent_errors(limit=10)
-    ack_history_temperature(request_id, "success", recent_errors)
+    msg_out = ack_history_temperature(id=id, status="success", message=recent_errors)
+    return msg_out
 
-def ack_history_temperature(request_id, status, errors):
-    sio.emit(SocketEventsToBackend.ACK_CALL_HISTORY_TEMPRETURE, {
-        "request_id": request_id,
-        "status": status,
-        "errors": errors
-    })
+def ack_history_temperature(id : str, status : str, message : list):
+    msg : QueueMessage = _prepare_backend_msg(
+    event = SocketEventsToBackend.ACK_CALL_LIVE_TEMPRETURE,
+    payload = {
+            "id": id,
+            "status": status,
+            "errors": message
+        }
+    )
+    return msg
 
-def set_event(data):
-    request_id = data.get("request_id", "n/a")
-    enable = data.get("enable", True)
+def set_event(msg_in : QueueMessage) -> QueueMessage:
+    source : QueuesMembers = msg_in.header.source
+    dest : QueuesMembers = msg_in.header.dest
+    user : str = msg_in.header.user
+    id : str = msg_in.header.id 
+    timestamp : float = msg_in.header.timestamp
+    payload = msg_in.payload
 
-    if enable:
-        enable_event_recording()
-        ack_event(request_id, "success", "Event recording enabled")
-    else:
-        disable_event_recording()
-        ack_event(request_id, "success", "Event recording disabled")
+    msg_out : QueueMessage
 
-def ack_event(request_id, status, message):
-    sio.emit("ack_event", {
-        "request_id": request_id,
-        "status": status,
-        "message": message
-    })
+    try:
+        if not "enable" in payload:
+            raise ValueError("temp_threshold not found in payload")
+        enable = payload.get("enable", True)
 
-def call_record(data):
-    request_id = data.get("request_id", "n/a")
+        if enable:
+            enable_event_recording()
+            msg_out = ack_event(id=id, status="success", message="Event recording enabled")
+        else:
+            disable_event_recording()
+            msg_out = ack_event(id=id, status="success", message="Event recording disabled")
+    except ValueError as e:
+        msg_out = ack_set_temperature(id=id, status="error", message="Missing parameter value")
+    except Exception as e:
+        msg_out = ack_set_temperature(id=id, status="error", message=f"Failed to set temperature: {e}")
+    return msg_out
+
+def ack_event(id : str, status : str, message : str) -> QueueMessage:
+    msg : QueueMessage = _prepare_backend_msg(
+    event = SocketEventsToBackend.ACK_SET_EVENT,
+    payload = {
+            "id": id,
+            "status": status,
+            "errors": message
+        }
+    )
+    return msg
+
+def call_record(msg_in : QueueMessage) -> QueueMessage:
+    source : QueuesMembers = msg_in.header.source
+    dest : QueuesMembers = msg_in.header.dest
+    user : str = msg_in.header.user
+    id : str = msg_in.header.id 
+    timestamp : float = msg_in.header.timestamp
+    payload = msg_in.payload
+
+    msg_out : QueueMessage
+
     if mode == SystemMode.TEST:
-        cam.trigger_anomaly()
-        ack_call_record(request_id, "success", "Test anomaly triggered")
+        msg_out = ack_call_record(id=id, status="success", message="Test anomaly triggered")
     else:
-        ack_call_record(request_id, "error", "Only allowed in TEST mode")
+        msg_out = ack_call_record(id=id, status="error", message="Only allowed in TEST mode")
+    return msg_out
 
-def ack_call_record(request_id, status, message):
-    sio.emit(SocketEventsToBackend.ACK_MANUAL_CALL_RECORD, {
-        "request_id": request_id,
-        "status": status,
-        "message": message
-    })
+def ack_call_record(id : str, status : str, message : str) -> QueueMessage:
+    msg : QueueMessage = _prepare_backend_msg(
+    event = SocketEventsToBackend.ACK_MANUAL_CALL_RECORD,
+    payload = {
+            "id": id,
+            "status": status,
+            "message": message
+        }
+    )
+    return msg
 
-def reset_alarm(data):
-    logging.info("Alarm reset requested")
-    # Example: turn off relais, reset flags
+def reset_alarm(msg_in : QueueMessage) -> QueueMessage:
+    source : QueuesMembers = msg_in.header.source
+    dest : QueuesMembers = msg_in.header.dest
+    user : str = msg_in.header.user
+    id : str = msg_in.header.id 
+    timestamp : float = msg_in.header.timestamp
+    payload = msg_in.payload
+
+    msg_out : QueueMessage
+
     try:
         set_relais_state(False)
-        ack_reset_alarm(data.get("request_id", "n/a"), "success", "Alarm reset successful.")
+        msg_out = ack_reset_alarm(id=id, status="success", message="Alarm reset successful.")
     except Exception as e:
-        ack_reset_alarm(data.get("request_id", "n/a"), "error", str(e))
+        msg_out = ack_reset_alarm(id=id, status="error", message=str(e))
+    return msg_out
 
-def ack_reset_alarm(request_id, status, message):
-    sio.emit(SocketEventsToBackend.ACK_RESET_ALARM, {
-        "request_id": request_id,
-        "status": status,
-        "message": message
-    })
+def ack_reset_alarm(id : str, status : str, message : str) -> QueueMessage:
+    msg : QueueMessage = _prepare_backend_msg(
+    event = SocketEventsToBackend.ACK_RESET_ALARM,
+    payload = {
+            "id": id,
+            "status": status,
+            "message": message
+        }
+    )
+    return msg
 
-def reset_error(data):
-    request_id = data.get("request_id", "n/a")
+def reset_error(msg_in : QueueMessage) -> QueueMessage:
+    source : QueuesMembers = msg_in.header.source
+    dest : QueuesMembers = msg_in.header.dest
+    user : str = msg_in.header.user
+    id : str = msg_in.header.id 
+    timestamp : float = msg_in.header.timestamp
+    payload = msg_in.payload
+
+    msg_out : QueueMessage
+
     try:
-        # Clear internal error history
         error_history.clear()
-
-        # Optionally, reset system state if needed
-        # Example: unfreeze relais, restart components, etc.
         unfreeze_relais()
-
         logging.info("Error state cleared by server.")
-        ack_reset_error(request_id, "success", "Error state cleared successfully.")
+        msg_out = ack_reset_error(id=id, status="success", message="Error state cleared successfully.")
     except Exception as e:
         log_error_to_user(f"Failed to reset error: {e}")
-        ack_reset_error(request_id, "error", str(e))
+        msg_out = ack_reset_error(id=id, status="error", message=str(e))
 
-def ack_reset_error(request_id, status, message):
-    sio.emit(SocketEventsToBackend.ACK_RESET_ERROR, {
-        "request_id": request_id,
-        "status": status,
-        "message": message
-    })
+    return msg_out
+
+def ack_reset_error(id : str, status : str, message : str) -> QueueMessage:
+    msg : QueueMessage = _prepare_backend_msg(
+    event = SocketEventsToBackend.ACK_RESET_ERROR,
+    payload = {
+            "id": id,
+            "status": status,
+            "message": message
+        }
+    )
+    return msg
 
 # IR Command Handler    
-def ir_command_handler(msg : QueueMessage):
+def ir_command_handler(msg_in : QueueMessage) -> QueueMessage:
     try:
-        command = msg.event
-        data = msg.data
+        header = msg_in.header
+        payload = msg_in.payload
+
+        command = header.event
+        data = payload
+        msg_out : QueueMessage
     
         logger.info(f"[IR COMMAND] Received: {command} | Data: {data}")
 
         if command == SocketEventsFromBackend.REQ_SET_CONFIG:
-            set_config(data)
+            msg_out = set_config(msg_in=msg_in)
 
         elif command == SocketEventsFromBackend.REQ_SET_TEMPRETURE:
-            set_temperature(data)
+            msg_out = set_temperature(msg_in=msg_in)
 
         elif command == SocketEventsFromBackend.REQ_MANUAL_START_RECORD:
-            manual_start_record(data)
+            msg_out = manual_start_record(msg_in=msg_in)
 
         elif command == SocketEventsFromBackend.REQ_MANUAL_STOP_RECORD:
-            manual_stop_record(data)
-
+            msg_out = manual_stop_record(msg_in=msg_in)
+    
         elif command == "timeout_stop_record":
-            timeout_stop_record(data)
+            msg_out = timeout_stop_record(msg_in=msg_in)
 
         elif command == SocketEventsFromBackend.REQ_CALL_LIVE_TEMPRETURE:  # Note: fix spelling if needed
-            call_live_temperature(data)
+            msg_out = call_live_temperature(msg_in=msg_in)
 
         elif command == SocketEventsFromBackend.REQ_CALL_HISTORY_TEMPRETURE:
-            call_history_temperature(data)
+            msg_out = call_history_temperature(msg_in=msg_in)
 
-        elif command == "set_event":
-            set_event(data)
+        elif command == SocketEventsFromBackend.REQ_SET_EVENT:
+            msg_out = set_event(msg_in=msg_in)
 
         elif command == SocketEventsFromBackend.REQ_MANUAL_CALL_RECORD:
-            call_record(data)
+            msg_out = call_record(msg_in=msg_in)
 
         elif command == SocketEventsFromBackend.REQ_RESET_ALARM:
-            reset_alarm(data)
+            msg_out = reset_alarm(msg_in=msg_in)
 
         elif command == SocketEventsFromBackend.REQ_RESET_ERROR:
-            reset_error(data)
+            msg_out = reset_error(msg_in=msg_in)
 
         else:
             logger.warning(f"[IR COMMAND] Unknown command: {command}")
 
     except Exception as e:
         logger.error(f"[IR COMMAND] Handler error: {e}")
+    return msg_out
+
+# # Main Loop 
+# def main():
+#     global anomaly_worker_thread 
+#     global cam, db, mode, frame, temp, recording, anomaly_active
+#     global anomaly_thread, manual_record_thread
+#     global last_trigger_time, last_test_time, exit_flag, event_recording_enabled
+
+#     load_config()  
+#     anomaly_worker_thread = None
+
+#     RETRIGGER_COOLDOWN = 15
+#     TEST_TIMEOUT = 180
+#     last_trigger_time = 0
+#     last_test_time = time.time()
+
+#     try:
+#         cam = camera_control.CameraController()
+#         db = frame_database.FrameDatabase("frame_store.db")
+#         threading.Thread(target=ir_command_handler, args=(queue_ir,), daemon=True).start()
+
+#     except Exception as e:
+#         logging.critical(f"Failed to initialize camera or DB: {e}")
+#         mode = SystemMode.FAULT
+#         event_recording_enabled = False
+#         cam = None
+
+
+#     try:
+#         while True:
+#             key = cv2.waitKey(1) & 0xFF
+#             if key == ord('q'):
+#                 logging.info("Exiting now...")
+#                 exit_flag = True
+#                 break
+#             elif key == ord('f'):
+#                 set_mode(SystemMode.FAULT)
+#             elif key == ord('t'):
+#                 set_mode(SystemMode.TEST)
+#             elif key == ord('n'):
+#                 set_mode(SystemMode.NORMAL)
+#             elif key == ord('s') and frame is not None:
+#                 threading.Thread(target=screenshot, args=(frame.copy(),)).start()
+#             elif key == ord('v') and frame is not None and not recording and mode == SystemMode.TEST:
+#                 manual_record_thread = threading.Thread(
+#                     target=record_video, args=(cam, mode, POST_EVENT_DURATION))
+#                 manual_record_thread.start()
+#                 recording = True
+
+#             elif key == ord('a') and USE_MOCK_CAMERA:
+#                 cam.trigger_anomaly()
+#             elif key == ord('h') and mode == SystemMode.TEST:
+#                 trigger_hupe()
+#             elif key == ord('b') and mode == SystemMode.TEST:
+#                 trigger_blitz()
+#             elif key == ord('r') and mode == SystemMode.TEST:
+#                 set_relais_state(True)
+#             elif key == ord('z') and mode == SystemMode.TEST:
+#                 freeze_relais()
+#             elif key == ord('u') and mode == SystemMode.TEST:
+#                 unfreeze_relais()
+#             elif key == ord('f'):  # Reinitialize the camera
+#                     try:
+#                         cam = CameraController()
+#                         logging.info("Camera re-initialized successfully. Switching to NORMAL mode.")
+#                         set_mode(SystemMode.NORMAL)
+#                     except Exception as e:
+#                         log_error_to_user(f"Failed to initialize camera or DB: {e}")
 
 
 
+#             if mode == SystemMode.TEST and (time.time() - last_test_time) > TEST_TIMEOUT:
+#                 logging.info("Test mode timeout. Switching to NORMAL.")
+#                 mode = SystemMode.NORMAL
+
+#             try:
+#                 with camera_lock:
+#                     frame, temp = cam.get_frame()
+#                     # Send heartbeat to überwachung.py (IRAppProcess)
+#                 try:
+#                     if 'events_ir' in globals() and events_ir:
+#                         events_ir.heartbeat.set()
+#                 except Exception:
+#                     pass
 
 
-# Main Loop 
-def main():
-    global anomaly_worker_thread 
-    global cam, db, mode, frame, temp, recording, anomaly_active
-    global anomaly_thread, manual_record_thread
-    global last_trigger_time, last_test_time, exit_flag, event_recording_enabled
+#                 if frame is None:
+#                     log_error_to_user("Camera returned no frame. Switching to FAULT mode.")
+#                     set_mode(SystemMode.FAULT)
+#                     frame = generate_error_image()  # Show error image
+#                     temp = None
+#             except Exception as e:
+#                 log_error_to_user(f"Camera error: {e}. Switching to FAULT mode.")
+#                 set_mode(SystemMode.FAULT)
+#                 frame = generate_error_image()
+#                 temp = None
 
-    load_config()  
-    anomaly_worker_thread = None
+#             if frame is not None:
+#                 try:
+#                     safe_insert_frame(frame)
+#                     timestamp = datetime.datetime.now().isoformat()
+#                     with open(FRAME_LOG_FILE, mode='a', newline='') as csvfile:
+#                         writer = csv.writer(csvfile)
+#                         writer.writerow([timestamp, mode, f"{temp:.2f}" if temp is not None else "N/A", recording])
+#                 except Exception as e:
+#                     logging.warning("DB insert error: %s", e)
 
-    RETRIGGER_COOLDOWN = 15
-    TEST_TIMEOUT = 180
-    last_trigger_time = 0
-    last_test_time = time.time()
+#             # Event-based recording for Normal mode
+#             # Event-based recording and IO control for Normal mode
+#             # Event-based anomaly detection with STOP_THRESHOLD + queue
+#             if mode == SystemMode.NORMAL and temp is not None:
+#                 if temp > START_THRESHOLD and not anomaly_active:
+#                     logging.info(f"New anomaly detected: Temp = {temp:.2f} °C")
+#                     # Queue anomaly event
+#                     anomaly_queue.put((temp, datetime.datetime.now()))
 
-    try:
-        cam = camera_control.CameraController()
-        db = frame_database.FrameDatabase("frame_store.db")
-        threading.Thread(target=ir_command_handler, args=(queue_ir,), daemon=True).start()
+#                     # Trigger IO
+#                     retry_io_action(trigger_hupe, "HUPE Trigger")
+#                     retry_io_action(trigger_blitz, "BLITZ Trigger")
+#                     retry_io_action(lambda: set_relais_state(True), "Set RELAIS ON")
 
-    except Exception as e:
-        logging.critical(f"Failed to initialize camera or DB: {e}")
-        mode = SystemMode.FAULT
-        event_recording_enabled = False
-        cam = None
+#                     anomaly_active = True  # Mark anomaly as ongoing
+#                 elif temp < STOP_THRESHOLD and not recording:
+#                     anomaly_active = False  # Reset anomaly state for next event
 
+#                 # Start anomaly worker if idle
+#                 if not recording and not anomaly_queue.empty() and \
+#                 (anomaly_worker_thread is None or not anomaly_worker_thread.is_alive()):
+#                     anomaly_worker_thread = threading.Thread(target=anomaly_worker)
+#                     anomaly_worker_thread.start()
 
-    try:
-        while True:
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                logging.info("Exiting now...")
-                exit_flag = True
-                break
-            elif key == ord('f'):
-                set_mode(SystemMode.FAULT)
-            elif key == ord('t'):
-                set_mode(SystemMode.TEST)
-            elif key == ord('n'):
-                set_mode(SystemMode.NORMAL)
-            elif key == ord('s') and frame is not None:
-                threading.Thread(target=screenshot, args=(frame.copy(),)).start()
-            elif key == ord('v') and frame is not None and not recording and mode == SystemMode.TEST:
-                manual_record_thread = threading.Thread(
-                    target=record_video, args=(cam, mode, POST_EVENT_DURATION))
-                manual_record_thread.start()
-                recording = True
+#             # TEST MODE anomaly simulation
+#             if mode == SystemMode.TEST and USE_MOCK_CAMERA and temp is not None:
+#                 if temp > START_THRESHOLD and recording_type == "EVENT" and not anomaly_active:
+#                     logging.info(f"Test Mode Anomaly: Temp = {temp:.2f} °C (EVENT mode)")
+#                     anomaly_queue.put((temp, datetime.datetime.now()))
+#                     anomaly_active = True
+#                 elif temp < STOP_THRESHOLD and not recording:
+#                     anomaly_active = False
 
-            elif key == ord('a') and USE_MOCK_CAMERA:
-                cam.trigger_anomaly()
-            elif key == ord('h') and mode == SystemMode.TEST:
-                trigger_hupe()
-            elif key == ord('b') and mode == SystemMode.TEST:
-                trigger_blitz()
-            elif key == ord('r') and mode == SystemMode.TEST:
-                set_relais_state(True)
-            elif key == ord('z') and mode == SystemMode.TEST:
-                freeze_relais()
-            elif key == ord('u') and mode == SystemMode.TEST:
-                unfreeze_relais()
-            elif key == ord('f'):  # Reinitialize the camera
-                    try:
-                        cam = CameraController()
-                        logging.info("Camera re-initialized successfully. Switching to NORMAL mode.")
-                        set_mode(SystemMode.NORMAL)
-                    except Exception as e:
-                        log_error_to_user(f"Failed to initialize camera or DB: {e}")
+#                 if not recording and not anomaly_queue.empty() and \
+#                     (anomaly_worker_thread is None or not anomaly_worker_thread.is_alive()):
+#                     anomaly_worker_thread = threading.Thread(target=anomaly_worker)
+#                     anomaly_worker_thread.start()
 
+#             elif recording and manual_record_thread and not manual_record_thread.is_alive():
+#                 try:
+#                     set_relais_state(False)
+#                 except Exception as e:
+#                     log_error_to_user(f"Failed to reset relais: {e}")
+#                 logging.info("Event recording finished, system re-armed.")
+#                 recording = False
+#                 manual_record_thread = None
 
+#             if anomaly_thread and not anomaly_thread.is_alive():
+#                 anomaly_thread = None
+#             if manual_record_thread and not manual_record_thread.is_alive():
+#                 recording = False
+#                 manual_record_thread = None
+#             if exit_flag:
+#                 break
 
-            if mode == SystemMode.TEST and (time.time() - last_test_time) > TEST_TIMEOUT:
-                logging.info("Test mode timeout. Switching to NORMAL.")
-                mode = SystemMode.NORMAL
-
-            try:
-                with camera_lock:
-                    frame, temp = cam.get_frame()
-                    # Send heartbeat to überwachung.py (IRAppProcess)
-                try:
-                    if 'events_ir' in globals() and events_ir:
-                        events_ir.heartbeat.set()
-                except Exception:
-                    pass
+#             if frame is not None:
+#                 resized = cv2.resize(frame, (frame.shape[1] * 3, frame.shape[0] * 3))
+#                 display_frame = display(resized, temp, mode, recording)
+#                 cv2.imshow("Thermal View", display_frame)
 
 
-                if frame is None:
-                    log_error_to_user("Camera returned no frame. Switching to FAULT mode.")
-                    set_mode(SystemMode.FAULT)
-                    frame = generate_error_image()  # Show error image
-                    temp = None
-            except Exception as e:
-                log_error_to_user(f"Camera error: {e}. Switching to FAULT mode.")
-                set_mode(SystemMode.FAULT)
-                frame = generate_error_image()
-                temp = None
+#     finally:
+#         exit_flag = True
+#         logging.info("Shutting down threads...")
+#         if manual_record_thread and manual_record_thread.is_alive():
+#             manual_stop_flag = True
+#             manual_record_thread.join(timeout=0.5)
+#         if anomaly_worker_thread and anomaly_worker_thread.is_alive():
+#             anomaly_worker_thread.join(timeout=0.5)
 
-            if frame is not None:
-                try:
-                    safe_insert_frame(frame)
-                    timestamp = datetime.datetime.now().isoformat()
-                    with open(FRAME_LOG_FILE, mode='a', newline='') as csvfile:
-                        writer = csv.writer(csvfile)
-                        writer.writerow([timestamp, mode, f"{temp:.2f}" if temp is not None else "N/A", recording])
-                except Exception as e:
-                    logging.warning("DB insert error: %s", e)
-
-            # Event-based recording for Normal mode
-            # Event-based recording and IO control for Normal mode
-            # Event-based anomaly detection with STOP_THRESHOLD + queue
-            if mode == SystemMode.NORMAL and temp is not None:
-                if temp > START_THRESHOLD and not anomaly_active:
-                    logging.info(f"New anomaly detected: Temp = {temp:.2f} °C")
-                    # Queue anomaly event
-                    anomaly_queue.put((temp, datetime.datetime.now()))
-
-                    # Trigger IO
-                    retry_io_action(trigger_hupe, "HUPE Trigger")
-                    retry_io_action(trigger_blitz, "BLITZ Trigger")
-                    retry_io_action(lambda: set_relais_state(True), "Set RELAIS ON")
-
-                    anomaly_active = True  # Mark anomaly as ongoing
-                elif temp < STOP_THRESHOLD and not recording:
-                    anomaly_active = False  # Reset anomaly state for next event
-
-                # Start anomaly worker if idle
-                if not recording and not anomaly_queue.empty() and \
-                (anomaly_worker_thread is None or not anomaly_worker_thread.is_alive()):
-                    anomaly_worker_thread = threading.Thread(target=anomaly_worker)
-                    anomaly_worker_thread.start()
-
-            # TEST MODE anomaly simulation
-            if mode == SystemMode.TEST and USE_MOCK_CAMERA and temp is not None:
-                if temp > START_THRESHOLD and recording_type == "EVENT" and not anomaly_active:
-                    logging.info(f"Test Mode Anomaly: Temp = {temp:.2f} °C (EVENT mode)")
-                    anomaly_queue.put((temp, datetime.datetime.now()))
-                    anomaly_active = True
-                elif temp < STOP_THRESHOLD and not recording:
-                    anomaly_active = False
-
-                if not recording and not anomaly_queue.empty() and \
-                    (anomaly_worker_thread is None or not anomaly_worker_thread.is_alive()):
-                    anomaly_worker_thread = threading.Thread(target=anomaly_worker)
-                    anomaly_worker_thread.start()
-
-            elif recording and manual_record_thread and not manual_record_thread.is_alive():
-                try:
-                    set_relais_state(False)
-                except Exception as e:
-                    log_error_to_user(f"Failed to reset relais: {e}")
-                logging.info("Event recording finished, system re-armed.")
-                recording = False
-                manual_record_thread = None
-
-            if anomaly_thread and not anomaly_thread.is_alive():
-                anomaly_thread = None
-            if manual_record_thread and not manual_record_thread.is_alive():
-                recording = False
-                manual_record_thread = None
-            if exit_flag:
-                break
-
-            if frame is not None:
-                resized = cv2.resize(frame, (frame.shape[1] * 3, frame.shape[0] * 3))
-                display_frame = display(resized, temp, mode, recording)
-                cv2.imshow("Thermal View", display_frame)
+#         if cam and hasattr(cam, "shutdown"):
+#             cam.shutdown()
+#         if db:
+#             db.close()
+#         cv2.destroyAllWindows()
+#         logging.info("Shutdown complete.")
 
 
-    finally:
-        exit_flag = True
-        logging.info("Shutting down threads...")
-        if manual_record_thread and manual_record_thread.is_alive():
-            manual_stop_flag = True
-            manual_record_thread.join(timeout=0.5)
-        if anomaly_worker_thread and anomaly_worker_thread.is_alive():
-            anomaly_worker_thread.join(timeout=0.5)
-
-        if cam and hasattr(cam, "shutdown"):
-            cam.shutdown()
-        if db:
-            db.close()
-        cv2.destroyAllWindows()
-        logging.info("Shutdown complete.")
-
-
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

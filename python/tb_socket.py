@@ -1,7 +1,8 @@
 import socketio
 from typing import Callable
 from logging import Logger
-from models.tb_dataclasses import SocketMessage, SocketEventsFromBackend
+from models.tb_dataclasses import SocketEventsFromBackend
+from tb_queue_test import QueueMessage
 
 class Tb_Socket(socketio.Client):
     def __init__(self, logger: Logger):
@@ -22,12 +23,12 @@ class Tb_Socket(socketio.Client):
             err_msg = f"Fehler beim Senden des Events '{event.value}': {e}"
             self.logger.error(err_msg)
 
-    def send_event(self, msg: SocketMessage, callback: Callable[..., None]) -> None:
+    def send_event(self, msg: QueueMessage, callback: Callable[..., None]) -> None:
         try:
             self.emit(event=msg.command.value, data=msg.data, callback=callback)  # type: ignore
-            self.logger.debug(f"Event '{msg.event.value}' gesendet mit Daten: {msg.data}")
+            self.logger.debug(f"Event '{msg.header.event.value}' gesendet mit Daten: {msg.payload}")
         except Exception as e:
-            err_msg = f"Fehler beim Senden des Events '{msg.event.value}': {e}"
+            err_msg = f"Fehler beim Senden des Events '{msg.header.event.value}': {e}"
             self.logger.error(err_msg)
 
     def wrapper_transport(self) -> str:

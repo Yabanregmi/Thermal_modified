@@ -32,7 +32,7 @@ Zuverlässigkeit und Wartbarkeit konzipiert.
 """
 import multiprocessing
 import time
-from models.tb_dataclasses import QueueMessage, QueueTestEvents, QueuesMembers
+from models.tb_dataclasses import QueueMessage, QueueTestEvents, QueuesMembers, SocketEventsToBackend, QueueMessageHeader
 from logging import Logger
 from tb_events import IrEvents
 from tb_queues import MainQueues, SocketQueues
@@ -83,7 +83,7 @@ class Tb_IrProcess(multiprocessing.Process):
         self.logger.debug(f"{self.__class__.__name__} - {self.name} running")
 
         app_ir.load_config()  
-
+        msg_out : QueueMessage
         RETRIGGER_COOLDOWN = 15
         TEST_TIMEOUT = 180
         last_trigger_time = 0
@@ -106,11 +106,13 @@ class Tb_IrProcess(multiprocessing.Process):
             else:    
                 msg_in = self.main_queues.ir.get()
                 if not msg_in is None: 
-                    if msg_in.source is QueuesMembers.MAIN and msg_in.dest is QueuesMembers.IR and msg_in.event is QueueTestEvents.REQ_FROM_MAIN_TO_IR:
+                    if msg_in.header.source is QueuesMembers.MAIN and msg_in.header.dest is QueuesMembers.IR and msg_in.header.event is QueueTestEvents.REQ_FROM_MAIN_TO_IR:
                         if not self.queue_test_send_ack(msg=msg_in):
                             self.events.error.set()
                     else:
-                        app_ir.ir_command_handler(msg = msg_in)
+                        msg_out = app_ir.ir_command_handler(msg_in=msg_in)
+                        if not self.queue_send_to_backend(msg = msg_out):
+                            self.events.error.set()
                 self.events.heartbeat.set()
             time.sleep(1)
 
@@ -122,17 +124,47 @@ class Tb_IrProcess(multiprocessing.Process):
         if db:
             db.close()
         time.sleep(1)
+
+    def _prepare_backend_msg(self, event : SocketEventsToBackend, payload : dict = {}) -> QueueMessage:
+        header : QueueMessageHeader = QueueMessageHeader(
+            source=QueuesMembers.IR, 
+            dest = QueuesMembers.BACKEND, 
+            event =event,
+            id="",
+            user="",
+            timestamp=time.time())
+        return QueueMessage(header = header, payload=payload)    
+    
+    def _prepare_queue_test_msg(self, event : QueueTestEvents, payload : dict = {}) -> QueueMessage:
+        header : QueueMessageHeader = QueueMessageHeader(
+            source=QueuesMembers.IR, 
+            dest = QueuesMembers.MAIN, 
+            event =event,
+            id="",
+            user="",
+            timestamp=time.time())
+        return QueueMessage(header = header, payload=payload)    
         
     def queue_test_send_ack(self, msg : QueueMessage) -> bool:
         status : bool = False
         try:
-            if msg.event == QueueTestEvents.REQ_FROM_MAIN_TO_IR:
-                queue_test_msg_ack : QueueMessage = QueueMessage(source=QueuesMembers.IR,dest=QueuesMembers.MAIN,
-                    event=QueueTestEvents.ACK_FROM_IR_TO_MAIN, timestamp=time.time(), data = "")
+            if msg.header.event == QueueTestEvents.REQ_FROM_MAIN_TO_IR:
+                queue_test_msg_ack : QueueMessage = self._prepare_queue_test_msg(event=QueueTestEvents.ACK_FROM_IR_TO_MAIN)
                 if not self.main_queues.main.put(item=queue_test_msg_ack):
                     status = False
                 else:
                     status = True
+        except Exception:
+            status = False
+        return status
+    
+    def queue_send_to_backend(self, msg : QueueMessage) -> bool:
+        status : bool = False
+        try:
+            if not self.main_queues.main.put(item=msg):
+                status = False
+            else:
+                status = True
         except Exception:
             status = False
         return status
