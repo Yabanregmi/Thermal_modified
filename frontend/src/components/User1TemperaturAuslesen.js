@@ -4,12 +4,46 @@ import { Line, Bar } from "react-chartjs-2";
 import "chart.js/auto";
 
 export default function User1Features() {
-  const socket = useContext(SocketContext);
+  const socket = useContext(SocketContext); // Holt sich den Socket aus dem Context.
+  const intervalRef = useRef(null); // Speichert die ID des laufenden Intervalls (damit es später gestoppt werden kann)
 
   const [temperaturen, setTemperaturen] = useState([]);
   const [histogrammWerte, setHistogrammWerte] = useState([]);
   const [histogrammError, setHistogrammError] = useState("");
   const [schwelle, setSchwelle] = useState(null);
+
+  // Wird einmal beim Mounten der Komponente ausgeführt (und wenn sich socket ändert).
+  useEffect(() => {
+    let ackReceived = false; // Lokale Variable, merkt sich, ob das ACK schon empfangen wurde.
+
+    // Funktion, die das Event sendet – aber nur solange kein ACK empfangen wurde.
+    function sendReq() {
+      if (!ackReceived) {
+        socket.emit("REQ_CALL_LIVE_TEMPRETURE");
+      }
+    }
+
+    // Ruft sendReq jede Sekunde auf und speichert die Intervall-ID in intervalRef.current.
+    intervalRef.current = setInterval(sendReq, 1000); // alle 1 Sekunde
+
+    // Wird aufgerufen, wenn das ACK vom Backend kommt
+    function handleAck(msg) {
+      ackReceived = true; // Setzt ackReceived auf true, damit keine weiteren Requests mehr gesendet werde
+      clearInterval(intervalRef.current); // Beendet das Intervall mit clearInterval().
+      intervalRef.current = null; // Setzt die Referenz zurück.
+      // Optional: Hier kannst du eine State-Variable setzen, um anzuzeigen, dass Live-Daten empfangen werden
+      // z.B. setLiveMode(true);
+    }
+
+    socket.on("ACK_CALL_LIVE_TEMPRETURE", handleAck);
+
+    // Stoppt das Intervall, falls es noch läuft, wenn die Komponente aus dem DOM entfernt wird.
+    // Entfernt den Event-Listener für das ACK, damit es keine Speicherlecks gibt.
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      socket.off("ACK_CALL_LIVE_TEMPRETURE", handleAck);
+    };
+  }, [socket]);
 
   useEffect(() => {
     function handleTemp(msg) {
