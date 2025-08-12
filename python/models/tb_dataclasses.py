@@ -5,7 +5,6 @@ from dataclasses import dataclass, asdict, field
 from typing import Type, Literal
 from enum import Enum
 
-
 LogLevel = Literal[10, 20, 30, 40, 50]
 
 class SocketEventsFromBackend(Enum):
@@ -38,6 +37,7 @@ class SocketEventsToBackend(Enum):
     ACK_CALL_HISTORY_TEMPRETURE = "ACK_CALL_HISTORY_TEMPRETURE"
     ACK_SET_EVENT = "ACK_SET_EVENT"
     ACK_MESSAGE = "ACK_MESSAGE"
+    REQ_TEST = "REQ_TEST"
 
 class QueuesMembers(Enum):
     SERVER = "server"

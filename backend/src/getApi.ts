@@ -5,11 +5,12 @@ import bodyParser from 'body-parser';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { TemperaturMsg } from './routes_socket/routes/onLiveTemperatur';
+import { TemperaturMsg } from './routes_frontend/routes/onLiveTemperatur';
 import { postLogin } from './routes_express/postLogin';
-import { createSocketHandlers } from './routes_socket/frontend_register_handler';
 import { Database } from './database/Sqlite3Database';
-import { intern_register_handlers } from './routes_intern/intern_register_handlers';
+import { registerBackendHandlers } from './routes/registerBackendHandlers';
+import { registerFrontendHandlers } from './routes/registerFrontendHandlers';
+
 // Typ für die Rückgabe
 export interface ApiServers {
   server_frontend: HttpServer;
@@ -70,9 +71,6 @@ export function getApi({ database }: { database: Database }): ApiServers {
     message: 'Zu viele Login-Versuche. Bitte warte kurz.'
   }));
 
-  // HTTP-Routen
-
-
   // HTTP-Server und Socket.io-Server initialisieren
   const server_frontend: HttpServer = http.createServer(appFrontend);
 
@@ -85,33 +83,19 @@ export function getApi({ database }: { database: Database }): ApiServers {
 
   appFrontend.post('/api/login', postLogin({ database }));
 
-  // Getter/Setter-Objekt für Socket-Handler
-  const konfigState: KonfigState = {
-    getTemperSchwelle: () => temperSchwelle,
-    setTemperSchwelle: (v: number) => { temperSchwelle = v; },
-    getLetzteLiveTemperatur: () => letzteLiveTemperatur,
-    setLetzteLiveTemperatur: (v: TemperaturMsg | null) => { letzteLiveTemperatur = v; },
-    getKonfigAckTimeout: () => konfigAckTimeout,
-    setKonfigAckTimeout: (v: NodeJS.Timeout | null) => { konfigAckTimeout = v; },
-    getKonfigReady: () => konfigReady,
-    setKonfigReady: (v: boolean) => { konfigReady = v; }
-  };
+  // // Getter/Setter-Objekt für Socket-Handler
+  // const konfigState: KonfigState = {
+  //   getTemperSchwelle: () => temperSchwelle,
+  //   setTemperSchwelle: (v: number) => { temperSchwelle = v; },
+  //   getLetzteLiveTemperatur: () => letzteLiveTemperatur,
+  //   setLetzteLiveTemperatur: (v: TemperaturMsg | null) => { letzteLiveTemperatur = v; },
+  //   getKonfigAckTimeout: () => konfigAckTimeout,
+  //   setKonfigAckTimeout: (v: NodeJS.Timeout | null) => { konfigAckTimeout = v; },
+  //   getKonfigReady: () => konfigReady,
+  //   setKonfigReady: (v: boolean) => { konfigReady = v; }
+  // };
 
   // Socket.io: Registriere alle Event-Handler bei jeder neuen Verbindung
-  ioFrontend.on('connection', createSocketHandlers({
-    server_socket: ioFrontend,
-    database,
-    configLock,
-    konfigAckTimeout,
-    setKonfigAckTimeout: konfigState.setKonfigAckTimeout,
-    konfigReady,
-    setKonfigReady: konfigState.setKonfigReady,
-    temperSchwelle,
-    setTemperSchwelle: konfigState.setTemperSchwelle,
-    letzteLiveTemperatur,
-    setLetzteLiveTemperatur: konfigState.setLetzteLiveTemperatur
-  }));
-
   // === Interner Socket (z.B. für interne Dienste) ===
   const appIntern: Express = express();
 
@@ -125,14 +109,16 @@ export function getApi({ database }: { database: Database }): ApiServers {
 
   const server_intern: HttpServer = http.createServer(appIntern);
 
-  const ioIntern: SocketIOServer = new SocketIOServer(server_intern, {
+  const ioApp: SocketIOServer = new SocketIOServer(server_intern, {
     cors: {
       origin: "http://localhost:4001",
       credentials: true
     }
   });
 
-  ioIntern.on('connection', intern_register_handlers());
+  ioFrontend.on('connection', registerFrontendHandlers(ioApp));
+  ioApp.on('connection', registerBackendHandlers(ioFrontend));
+
 
   // Gebe HTTP-Server-Instanzen zurück (wird zum Starten des Servers verwendet)
   return { server_frontend, server_intern };

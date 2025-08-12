@@ -137,7 +137,8 @@ class AppContext:
     def _init_server_process(self, main_queues: MainQueues, socket_queues : SocketQueues,events: ServerEvents) -> Tb_ServerProcess:
         try:
             logger_server = TbLogger.get_logger("logger_server_process")
-            return Tb_ServerProcess(name="server_process", logger=logger_server, url=SERVER_URL, events=events, main_queues=main_queues, socket_queues = socket_queues)
+            logger_backend = TbLogger.get_logger("logger_backend")
+            return Tb_ServerProcess(name="server_process", logger=logger_server,logger_backend=logger_backend, url=SERVER_URL, events=events, main_queues=main_queues, socket_queues = socket_queues)
         except Exception as e:
             raise ValueError("Fehler beim Initialisieren des Server-Prozesses") from e
 

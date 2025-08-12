@@ -111,7 +111,7 @@ class Tb_IrProcess(multiprocessing.Process):
                             self.events.error.set()
                     else:
                         msg_out = app_ir.ir_command_handler(msg_in=msg_in)
-                        if not self.queue_send_to_backend(msg = msg_out):
+                        if not self.queue_send_to_server(msg = msg_out):
                             self.events.error.set()
                 self.events.heartbeat.set()
             time.sleep(1)
@@ -125,10 +125,10 @@ class Tb_IrProcess(multiprocessing.Process):
             db.close()
         time.sleep(1)
 
-    def _prepare_backend_msg(self, event : SocketEventsToBackend, payload : dict = {}) -> QueueMessage:
+    def _prepare_server_msg(self, event : SocketEventsToBackend, payload : dict = {}) -> QueueMessage:
         header : QueueMessageHeader = QueueMessageHeader(
             source=QueuesMembers.IR, 
-            dest = QueuesMembers.BACKEND, 
+            dest = QueuesMembers.SERVER, 
             event =event,
             id="",
             user="",
@@ -158,10 +158,10 @@ class Tb_IrProcess(multiprocessing.Process):
             status = False
         return status
     
-    def queue_send_to_backend(self, msg : QueueMessage) -> bool:
+    def queue_send_to_server(self, msg : QueueMessage) -> bool:
         status : bool = False
         try:
-            if not self.main_queues.main.put(item=msg):
+            if not self.main_queues.server.put(item=msg):
                 status = False
             else:
                 status = True
