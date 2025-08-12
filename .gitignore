@@ -12,3 +12,4 @@ curl.txt
 venv
 .venv
 output/
+system.log
