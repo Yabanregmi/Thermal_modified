@@ -10,6 +10,15 @@ from tb_server_process import Tb_ServerProcess
 from tb_ir_process import Tb_IrProcess
 from tb_user_input import Tb_UserInput
 from tb_heartbeat import Tb_Heartbeat
+import os
+
+
+USE_MOCK_RELAIS = os.environ.get("USE_MOCK_RELAIS", "1") == "1"  # default mock during tests
+
+if USE_MOCK_RELAIS:
+    from tb_relais_mock import Tb_Relay
+else:
+    from tb_relais import Tb_Relay
 
 class AppContext:
     _instance: Optional["AppContext"] = None

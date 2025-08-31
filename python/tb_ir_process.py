@@ -39,14 +39,14 @@ import numpy as np
 import datetime
 import threading
 from queue import Queue
+import os
 
 from models.tb_dataclasses import QueueMessage, QueueTestEvents, QueuesMembers, SocketEventsToBackend, QueueMessageHeader
 from logging import Logger
 from tb_events import IrEvents
 from tb_queues import MainQueues, SocketQueues
-from tb_ir import app_ir, camera_control, frame_database
-
-
+#from tb_ir import app_ir, camera_control, frame_database (just for testing the system without camera)
+from tb_ir import app_ir, frame_database
 
 # Minimale Zustands/Hilfsobjekte, die von den Funktionen genutzt werden
 
@@ -54,6 +54,9 @@ class SystemMode:
     NORMAL = "Normal"
     TEST = "Test"
     FAULT = "Fault"
+
+#mock camera
+USE_MOCK_CAMERA = os.getenv("USE_MOCK_CAMERA", "0") == "1"
 
 # Konfig-/Statuswerte 
 START_THRESHOLD = 50.0
@@ -82,11 +85,12 @@ last_trigger_time = 0
 last_test_time = 0
 exit_flag = False
 event_recording_enabled = True
+manual_stop_flag = False
 
-
-
-
-
+if USE_MOCK_CAMERA:
+    from mocks.mock_camera import MockCameraController as CameraController
+else:
+    from tb_ir.camera_control import CameraController
 
 # Kamera, Speicherung & Aufzeichnung 
 
@@ -258,7 +262,7 @@ class Tb_IrProcess(multiprocessing.Process):
         while not self.events.shutdown.is_set():
             if not init :
                 try:
-                    cam = camera_control.CameraController()
+                    cam = CameraController()
                     db = frame_database.FrameDatabase("prozess.db")
                     init = True
                 except Exception as e: 
@@ -277,6 +281,7 @@ class Tb_IrProcess(multiprocessing.Process):
                         if not self.queue_send_to_server(msg = msg_out):
                             self.events.error.set()
                 ### Kamera hier einfügen
+                
                 #  Frame und Temperatur holen
                 try:
                     with camera_lock:
